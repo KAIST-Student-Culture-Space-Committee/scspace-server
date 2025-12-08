@@ -9,15 +9,13 @@ export const DBProvider = [
     provide: DBAsyncProvider,
     useFactory: async () => {
       config();
-      const { DB_HOST, DB_PORT, DB_USER, DB_PWD, DB_NAME } = process.env;
-      // const DB_URL = `mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}`;
-      // Logger.log(DB_URL);;
+      const { MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PWD, MYSQL_NAME } = process.env;
       const pool = await mysql.createPool({
-        host: DB_HOST,
-        port: Number(DB_PORT), // 포트를 숫자로 변환
-        user: DB_USER,
-        password: DB_PWD,
-        database: DB_NAME,
+        host: MYSQL_HOST,
+        port: Number(MYSQL_PORT), // 포트를 숫자로 변환
+        user: MYSQL_USER,
+        password: MYSQL_PWD,
+        database: MYSQL_NAME,
         timezone: 'Z', // UTC 시간대로 설정
         waitForConnections: true,
         connectionLimit: 10,

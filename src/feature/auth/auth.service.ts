@@ -17,7 +17,7 @@ export class AuthService {
     private readonly organizationPublicService: OrganizationPublicService,
   ) { }
 
-  verifyState(state: number) {
+  verifyState(state: number) {  // 김휘림 여길 봐
     const v1 = parseInt(this.configService.get<string>("SSO_STATE1"));
     const v2 = parseInt(this.configService.get<string>("SSO_STATE2"));
 
@@ -38,7 +38,7 @@ export class AuthService {
     try {
       const clientId = process.env.CLIENT_ID;
       const clientSecret = process.env.CLIENT_SECRET;
-      const redirectUri = process.env.REDIRECT_URI;
+      const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI;
       const serverApiUrl = process.env.USER_INFO;
 
       const body = new URLSearchParams({

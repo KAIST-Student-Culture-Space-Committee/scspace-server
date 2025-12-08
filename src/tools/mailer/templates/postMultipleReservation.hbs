@@ -1,0 +1,170 @@
+<html lang='ko'>
+<head>
+  <meta charset='utf-8' />
+  <title>{{meta.header.kr}} / {{meta.header.en}}</title>
+  <style>
+    body {
+      font-family: 'Malgun Gothic', Arial, sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.08);
+    }
+
+    .header {
+      color: #fff;
+      text-align: center;
+      padding: 30px 20px;
+      border-radius: 8px 8px 0 0;
+    }
+
+    .header h1 { margin: 0; font-size: 24px; }
+    .header h2 { margin: 8px 0 0 0; font-weight: 400; font-size: 16px; }
+
+    .content { padding: 30px 20px; }
+
+    .reservation-info {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+
+    .reservation-title { font-size: 18px; font-weight: 600; margin: 5px 0; color: {{#if (eq result.successCount 0)}}#eb4034{{else}}{{meta.color}}{{/if}}; }
+
+    .informations {
+      margin: 20px 0;
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 6px;
+      border-left: 4px solid #17a2b8;
+    }
+
+    .informations ul { list-style: none; padding: 0; margin: 10px 0; }
+
+    .informations li {
+      margin: 10px 0;
+      padding: 10px;
+      background: #fff;
+      border-radius: 4px;
+      border-left: 3px solid #17a2b8; /* 기본 색상 */
+      display: flex;
+      align-items: center;
+    }
+
+    /* li solid 컬러를 성공/실패에 따라 변경 */
+    .informations li.success { border-left-color: green; }
+    .informations li.fail { border-left-color: red; }
+
+    .result-success { color: green; font-weight: bold; }
+    .result-fail { color: red; font-weight: bold; }
+
+    .footer {
+      background: #f8f9fa;
+      border-top: 1px solid #e9ecef;
+      padding: 20px;
+      text-align: center;
+      font-size: 14px;
+      color: #6c757d;
+      border-radius: 0 0 8px 8px;
+    }
+
+    @media only screen and (max-width: 600px) {
+      .container { margin:10px; border-radius:4px; }
+      .header { padding:20px 15px; }
+      .content { padding:20px 15px; }
+      .informations, li { flex-direction: column; align-items: flex-start; }
+      .informations li, strong { min-width:auto; margin-bottom:5px; }
+    }
+  </style>
+</head>
+<body>
+<div class='container'>
+  <!-- 헤더: successCount 0이면 붉은색 -->
+  <div class='header' style='background:{{#if (eq result.successCount 0)}}#eb4034{{else}}{{meta.color}}{{/if}}'>
+    <h1>{{meta.emoji}} {{meta.header.kr}}</h1>
+    <h2>{{meta.header.en}}</h2>
+    <p style='margin-top:18px'>
+      {{meta.body.kr}}<br />
+      {{meta.body.en}}
+    </p>
+  </div>
+
+  <div class='content'>
+    <!-- 예약 정보: successCount 0이면 붉은색 -->
+    <div class='reservation-info' style='border-left:4px solid {{#if (eq result.successCount 0)}}#eb4034{{else}}{{meta.color}}{{/if}}'>
+      <strong>변동 유형 / Action Type</strong>
+      <div class='reservation-title'>{{meta.contentUpperDesc.kr}} / {{meta.contentUpperDesc.en}}</div>
+      <p style='margin:8px 0;color:#6c757d;'>
+        총 {{result.length}}건 중 {{result.successCount}}건 성공 / {{result.failCount}}건 실패
+      </p>
+    </div>
+
+    <!-- 상세 정보 -->
+    <div class='informations'>
+      <strong>상세 정보 / Detailed Information</strong>
+      <ul>
+        <li>
+          <strong>예약명 / Title:&nbsp;</strong>
+          <span>{{reservations.title}}</span>
+        </li>
+        <li>
+          <strong>조직명 / Organization:&nbsp;</strong>
+          <span>
+            {{#if (eq reservations.organization.name "individual")}}
+              개인 / Individual
+            {{else}}
+              {{reservations.organization.name}}
+            {{/if}}
+          </span>
+        </li>
+        <li>
+          <strong>예약 공간 / Space:&nbsp;</strong>
+          <span> {{reservations.space.nameKr}} / {{reservations.space.nameEn}}</span>
+        </li>
+        <li>
+          <strong>총 예약 건수 / # :&nbsp;</strong>
+          <span> {{result.length}}</span>
+        </li>
+      </ul>
+    </div>
+
+    <!-- 개별 결과 -->
+    <div class='informations'>
+      <strong>개별 결과 / Per-Slot Results</strong>
+      <ul>
+        {{#each result.data}}
+          <li class="{{#if this.success}}success{{else}}fail{{/if}}">
+            <strong>시간대:&nbsp;&nbsp;</strong>
+            <span>
+               {{this.timeFrom}}&nbsp;~&nbsp;{{this.timeTo}} KST &nbsp;—&nbsp;
+              {{#if this.success}}
+                <span class="result-success">성공 / Success</span>
+              {{else}}
+                <span class="result-fail">실패 / Failed</span>
+              {{/if}}
+            </span>
+          </li>
+        {{/each}}
+      </ul>
+    </div>
+  </div>
+
+  <!-- 푸터 -->
+  <div class='footer'>
+    <p><strong>학생문화공간위원회 / Student Cultural Space Committee</strong></p>
+    <p>{{meta.templateFooter}}<br />{{meta.templateFooterEn}}</p>
+    <p style='margin-top:15px;color:#999;'>Contact : ✉️ scspace@kaist.ac.kr</p>
+  </div>
+</div>
+</body>
+</html>

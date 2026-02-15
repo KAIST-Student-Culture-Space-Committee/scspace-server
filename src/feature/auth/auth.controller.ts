@@ -7,77 +7,115 @@ import {
   Req,
   Logger,
   UseGuards,
+  Query,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
+import { Public } from 'src/common/decorators/public.decorator';
+
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
-  ) { }
+  ) {}
 
-  // @Get('login')
-  // async loginGet(
-  //   @Res() res: Response,
-  // ): Promise<void> {
-  //   Logger.log('login page');
-  //   await this.authService.tmp_login(res);
-  // }
+  @Public()
+  @Get('login-url')
+  async getLoginUrl() {
+    const loginUrl = await this.authService.getLoginUrl();
+    return { loginUrl };
+  }
+
+  @Public()
+  @Get('callback')
+  async ssoCallback(
+    @Query('state') state: string,
+    @Query('code') code: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    try {
+      const { accessToken, refreshToken, isNewUser } =
+        await this.authService.handleSsoCallback(state, code);
+
+      res.cookie('accessToken', accessToken, {
+        maxAge: 60 * 30 * 1000, // 30 minutes
+        httpOnly: true,
+        // secure: this.configService.get('NODE_ENV') === 'production',
+        // sameSite: 'lax',
+      });
+
+      res.cookie('refreshToken', refreshToken, {
+        maxAge: 60 * 60 * 1000 * 24 * 14, // 14 days
+        httpOnly: true,
+        // secure: this.configService.get('NODE_ENV') === 'production',
+        // sameSite: 'lax',
+      });
+
+      if (isNewUser) {
+        // A temporary token is issued, and the final login will be completed after the user agrees to the terms.
+        // The frontend should redirect to the terms page.
+        return res.redirect(
+          `${this.configService.get<string>(
+            'NEXT_PUBLIC_APP_URL',
+          )}/terms-of-service`,
+        );
+      }
+
+      return res.redirect(
+        this.configService.get<string>('NEXT_PUBLIC_APP_URL'),
+      );
+    } catch (error) {
+      Logger.error('SSO Callback failed:', error);
+      return res.redirect(
+        `${this.configService.get<string>(
+          'NEXT_PUBLIC_APP_URL',
+        )}/login?error=auth_failed`,
+      );
+    }
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refreshTokens(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const newAccessToken = await this.authService.refreshAccessToken(
+      req.cookies.refreshToken,
+    );
+    res.cookie('accessToken', newAccessToken, {
+      maxAge: 60 * 30 * 1000, // 30 minutes
+      httpOnly: true,
+    });
+    return { message: 'Access token refreshed' };
+  }
 
   @Get('verify')
-  async verify(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const verifyRes = await this.authService.verify(req.cookies);
-
-    // 토큰이 만료되었거나 유효하지 않은 경우 쿠키 제거
-    if (!verifyRes) {
-      res.clearCookie('scspacetoken', { path: '/' });
-    }
-
-    res.json({
-      isLogined: !!verifyRes,
-      userInfo: verifyRes,
-    });
+  async verify(@Req() req: Request) {
+    // The new verify logic will be based on the JWT strategy validating the accessToken.
+    // The AuthGuard('jwt') will handle it automatically.
+    // If the guard passes, it means the user is authenticated.
+    return {
+      isLogined: true,
+      userInfo: req.user,
+    };
   }
 
-  @Post('login')
-  async login(
-    @Body('state') state: number,
-    @Body('code') code: string,
-    @Res() res: Response,
-  ): Promise<void> {
-    try {
-      const token = await this.authService.login(state, code);
-
-      // 쿠키 설정
-      const cookieOptions = {
-        maxAge: 60 * 60 * 1000 * 24 * 7, // 7 days
-        secure: true,
-        sameSite: 'none' as const,
-        httpOnly: true,
-        path: '/',
-      };
-
-      res.cookie('scspacetoken', Buffer.from(token).toString('base64'), cookieOptions);
-      res.redirect(this.configService.get<string>('NEXT_PUBLIC_APP_URL'));
-    } catch (error) {
-      Logger.error('Login failed:', error);
-      res.redirect('/login?error=auth_failed');
-    }
-  }
-
-  @UseGuards(AuthGuard("jwt"))
-  @Get('logout')
-  async logout(@Res() res: Response): Promise<void> {
-    res.clearCookie('scspacetoken', {
-      path: '/',
-      secure: true,
-      sameSite: 'none',
-      httpOnly: true
-    });
-
-    res.redirect(this.configService.get<string>('NEXT_PUBLIC_APP_URL'));
+  @UseGuards(AuthGuard('jwt'))
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<any> {
+    await this.authService.logout(req.cookies.refreshToken);
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken');
+    return { message: 'Logout successful' };
   }
 }

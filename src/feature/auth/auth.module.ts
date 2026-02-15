@@ -4,24 +4,33 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt/jwt.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
-import { DelegatorGuard, ManagerGuard, MemberGuard, UserGuard } from './jwt/jwt.guard';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import {
+  DelegatorGuard,
+  ManagerGuard,
+  MemberGuard,
+  UserGuard,
+} from './jwt/jwt.guard';
+import { ConfigModule } from '@nestjs/config';
 import { UserModule } from 'src/feature/user/user.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { ReservationModule } from '../reservation/reservation.module';
+import { HttpModule } from '@nestjs/axios';
+import { RedisModule } from 'src/db/redis/redis.module';
 
 @Module({
-  providers: [AuthService, JwtStrategy, ManagerGuard, UserGuard, DelegatorGuard, MemberGuard],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    ManagerGuard,
+    UserGuard,
+    DelegatorGuard,
+    MemberGuard,
+  ],
   imports: [
+    HttpModule,
+    RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
-    JwtModule.registerAsync({
-      imports: [ConfigModule, UserModule, OrganizationModule, ReservationModule],
-      inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_KEY'),
-        signOptions: { expiresIn: '1y' },
-      }),
-    }),
+    JwtModule.register({}), // Remove global secret configuration
     UserModule,
     OrganizationModule,
     ReservationModule,
@@ -29,4 +38,4 @@ import { ReservationModule } from '../reservation/reservation.module';
   controllers: [AuthController],
   exports: [ManagerGuard, UserGuard, DelegatorGuard, MemberGuard],
 })
-export class AuthModule { }
+export class AuthModule {}

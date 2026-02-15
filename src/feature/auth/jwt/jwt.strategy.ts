@@ -1,14 +1,12 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IUserCreate } from '@scspace-depot/types/user';
 import { UserPublicService } from 'src/feature/user/user.public.service';
+import { Request } from 'express';
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy) {
-  private readonly logger = new Logger(JwtStrategy.name);
-
+export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     private readonly userPublicService: UserPublicService,
     private readonly configService: ConfigService,
@@ -18,40 +16,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         JwtStrategy.extractJWT,
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
-      secretOrKey: configService.get('JWT_KEY'),
+      secretOrKey: configService.get('JWT_ACCESS_SECRET'),
       ignoreExpiration: false,
     });
   }
 
-  async validate(payload: IUserCreate) {
-    try {
-      const user = await this.userPublicService.fetchByStudentNumber(
-        payload.studentNumber,
-      );
+  async validate(payload: { id: number; studentNumber: string; type: number }) {
+    const user = await this.userPublicService.fetch(payload.id);
 
-      if (user) {
-        return user;
-      } else {
-        throw new UnauthorizedException('No User');
-      }
-    } catch (e) {
-      this.logger.error(`Error validating JWT: ${e}`);
-      throw e;
+    if (!user) {
+      throw new UnauthorizedException('User not found.');
     }
+    // The user object is attached to the request object
+    return user;
   }
 
-  private static extractJWT(req): string | null {
-    if (req.cookies && 'scspacetoken' in req.cookies) {
-      const encodedToken = req.cookies.scspacetoken;
-      try {
-        // Try to decode the base64 token
-        const token = Buffer.from(encodedToken, 'base64').toString('utf8');
-        return token;
-      } catch (e) {
-        Logger.error(`Failed to decode base64 token: ${e}`);
-        // If decoding fails, return the original token
-        return encodedToken;
-      }
+  private static extractJWT(req: Request): string | null {
+    if (req.cookies && 'accessToken' in req.cookies) {
+      return req.cookies.accessToken;
     }
     return null;
   }

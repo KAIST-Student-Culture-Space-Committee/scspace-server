@@ -13,9 +13,10 @@ import { ArticleModule } from './feature/article/article.module';
 import { join } from 'path';
 import { MailModule } from './tools/mailer/mail.module';
 import { LotteryModule } from './feature/lottery/lottery.module';
-import { ScheduleModule } from "@nestjs/schedule";
+import { ScheduleModule } from '@nestjs/schedule';
 import { FileModule } from './tools/file/file.module';
-import { PasspinModule } from "./feature/passpin/passpin.module";
+import { PasspinModule } from './feature/passpin/passpin.module';
+import { RedisModule } from './db/redis/redis.module';
 
 @Module({
   imports: [
@@ -35,9 +36,10 @@ import { PasspinModule } from "./feature/passpin/passpin.module";
     MailModule,
     LotteryModule,
     FileModule,
-    PasspinModule
+    PasspinModule,
+    RedisModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

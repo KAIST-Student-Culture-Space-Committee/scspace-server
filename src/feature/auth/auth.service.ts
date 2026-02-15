@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { JwtService, TokenExpiredError } from '@nestjs/jwt';
+import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { IUser, IUserCreate } from '@scspace-depot/types/user';
@@ -7,153 +7,192 @@ import { UserSSOType2025 } from '@scspace-depot/types/user/user.sso.type';
 import { UserAuthBinaryEnum } from '@scspace-depot/enums/user.enum';
 import { UserPublicService } from '../user/user.public.service';
 import { OrganizationPublicService } from '../organization/organization.public.service';
+import { REDIS_CLIENT } from 'src/db/redis/redis.provider';
+import Redis from 'ioredis';
+import { randomBytes } from 'crypto';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class AuthService {
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
     private readonly userPublicService: UserPublicService,
-    private jwtService: JwtService,
-    private configService: ConfigService,
     private readonly organizationPublicService: OrganizationPublicService,
-  ) { }
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+  ) {}
 
-  verifyState(state: number) {  // 김휘림 여길 봐
-    const v1 = parseInt(this.configService.get<string>("SSO_STATE1"));
-    const v2 = parseInt(this.configService.get<string>("SSO_STATE2"));
+  async getLoginUrl(): Promise<string> {
+    const state = randomBytes(16).toString('hex');
+    const nonce = randomBytes(16).toString('hex');
 
-    if ((state ^ v1) === v2) {
-      return true;
-    }
-    return false;
+    await this.redisClient.set(
+      `oauth-state:${state}`,
+      JSON.stringify({ nonce }),
+      'EX',
+      600,
+    );
+
+    const url = new URL(this.configService.get('SSO_URL'));
+    url.searchParams.set('client_id', this.configService.get('CLIENT_ID'));
+    url.searchParams.set(
+      'redirect_uri',
+      this.configService.get('REDIRECT_URI'),
+    );
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('state', state);
+    url.searchParams.set('nonce', nonce);
+
+    return url.toString();
   }
 
-  async login(state: number, code: string): Promise<string> {
-    if (!code) {
-      throw new Error('No code provided');
-    }
-    if (!this.verifyState(state)) {
-      throw new Error('Fucking STATE different detected');
+  async handleSsoCallback(
+    state: string,
+    code: string,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    isNewUser: boolean;
+  }> {
+    if (!state || !code) {
+      throw new UnauthorizedException('State or code is missing');
     }
 
+    const stateDataStr = await this.redisClient.get(`oauth-state:${state}`);
+    if (!stateDataStr) {
+      throw new UnauthorizedException('Invalid or expired state');
+    }
+    await this.redisClient.del(`oauth-state:${state}`);
+    const { nonce } = JSON.parse(stateDataStr);
+
+    const tokenResponse = await this._exchangeCodeForToken(code);
+    const idTokenPayload = this._decodeIdToken(tokenResponse.id_token);
+
+    if (idTokenPayload.nonce !== nonce) {
+      throw new UnauthorizedException('Invalid nonce');
+    }
+
+    const ssoUser = idTokenPayload as UserSSOType2025;
+    const userCreatePayload = this._ssoToUser(ssoUser);
+
+    let user = await this.userPublicService.fetchByStudentNumber(
+      userCreatePayload.studentNumber,
+    );
+
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      user = await this.userPublicService.insert(userCreatePayload);
+      const memberExist =
+        await this.organizationPublicService.fetchMembersById(1);
+      if (!memberExist.some((member) => member.userId === user.id)) {
+        await this.organizationPublicService.insertMember(1, user.id);
+      }
+    }
+
+    const accessToken = await this._generateAccessToken(user);
+    const refreshToken = await this._generateRefreshToken(user);
+
+    return { accessToken, refreshToken, isNewUser };
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<string> {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token not found.');
+    }
+
+    let payload;
     try {
-      const clientId = process.env.CLIENT_ID;
-      const clientSecret = process.env.CLIENT_SECRET;
-      const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI;
-      const serverApiUrl = process.env.USER_INFO;
-
-      const body = new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code: code,
-        redirect_uri: redirectUri,
+      payload = this.jwtService.verify(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
+    } catch (e) {
+      throw new UnauthorizedException('Invalid or expired refresh token.');
+    }
 
-      const response = await fetch(serverApiUrl, {
-        method: 'POST',
+    const storedToken = await this.redisClient.get(`rt:${payload.id}`);
+    if (storedToken !== refreshToken) {
+      throw new UnauthorizedException('Refresh token has been invalidated.');
+    }
+
+    const user = await this.userPublicService.fetch(payload.id);
+    if (!user) {
+      throw new UnauthorizedException('User not found.');
+    }
+
+    return this._generateAccessToken(user);
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    if (!refreshToken) return;
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        ignoreExpiration: true,
+      });
+      await this.redisClient.del(`rt:${payload.id}`);
+    } catch (error) {
+      Logger.warn('Could not invalidate non-existent or invalid refresh token');
+    }
+  }
+
+  private async _exchangeCodeForToken(
+    code: string,
+  ): Promise<{ id_token: string }> {
+    const url = this.configService.get<string>('SSO_TOKEN_URL');
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: this.configService.get<string>('CLIENT_ID'),
+      client_secret: this.configService.get<string>('CLIENT_SECRET'),
+      redirect_uri: this.configService.get<string>('REDIRECT_URI'),
+      code: code,
+    });
+
+    const { data } = await firstValueFrom(
+      this.httpService.post(url, body.toString(), {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: body.toString(),
-      });
+      }),
+    );
+    return data;
+  }
 
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
-      }
-
-      const result = await response.json();
-      const userInfo = result?.userInfo;
-      if (!userInfo) {
-        throw new Error('No user info in response');
-      }
-
-      const payload = this.ssoToUser(userInfo);
-
-      const user = await this.userPublicService.fetchByStudentNumber(
-        payload.studentNumber,
-      );
-      const createdUser = !user ? await this.userPublicService.insert(payload) : user;
-
-      const memberExist = await this.organizationPublicService.fetchMembersById(1);
-      if (!memberExist.some(member => member.userId === createdUser.id)) {
-        await this.organizationPublicService.insertMember(1, createdUser.id);
-      }
-
-      const token = this.jwtService.sign(createdUser, {
-        expiresIn: '7d',
-        issuer: 'scspace',
-        subject: 'userInfo',
-      });
-
-      return token;
-    } catch (error) {
-      Logger.error('Login error:', error);
-      throw error;
+  private _decodeIdToken(token: string): any {
+    try {
+      const payload = this.jwtService.decode(token);
+      if (!payload) throw new Error();
+      return payload;
+    } catch (e) {
+      throw new UnauthorizedException('Failed to decode ID token');
     }
   }
 
-  async tmp_login(res: any): Promise<void> {
-    try {
-
-      const payload = {
-        studentNumber: parseInt(process.env.ADMIN_USER_NUMBER),
-        nameKr: process.env.ADMIN_NAME_KR,
-        nameEn: process.env.ADMIN_NAME_EN,
-        email: process.env.ADMIN_EMAIL,
-        type: UserAuthBinaryEnum.USER + UserAuthBinaryEnum.MANAGER + UserAuthBinaryEnum.ADMIN,
-      };
-      Logger.log('PAYLOAD ' + JSON.stringify(payload));
-      const user = await this.userPublicService.fetchByStudentNumber(
-        payload.studentNumber,
-      );
-
-      const createdUser = !user ? await this.userPublicService.insert(payload) : user;
-      Logger.log('CREATED USER ' + JSON.stringify(user));
-      const token = this.jwtService.sign(createdUser, {
-        expiresIn: '7d',
-        issuer: 'scspace',
-        subject: 'userInfo',
-      });
-      Logger.log('TOKEN ' + token);
-
-      res.cookie('scspacetoken', Buffer.from(token).toString('base64'), {
-        maxAge: 60 * 60 * 1000 * 24 * 7,
-        secure: true,
-        sameSite: 'none',
-        httpOnly: true,
-        path: '/',
-      });
-
-      res.redirect(
-        this.configService.get<string>('NEXT_PUBLIC_APP_URL') + '/',
-      );
-
-    } catch (error) {
-      console.error('API 통신 오류:', error);
-      res.status(500).send("Internal Server Error");
+  private async _generateAccessToken(user: IUser): Promise<string> {
+    const payload = {
+      id: user.id,
+      studentNumber: user.studentNumber,
+      type: user.type,
     };
+    return this.jwtService.sign(payload, {
+      secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+      expiresIn: '30m',
+    });
   }
 
-  async verify(cookies: any): Promise<IUser | null> {
-    const cookie = cookies.scspacetoken;
-    if (!cookie) {
-      return null;
-    }
-
-    try {
-      const token = Buffer.from(cookie, 'base64').toString('utf8');
-      const decoded = this.jwtService.verify(token);
-      return decoded;
-    } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        // 토큰이 만료된 경우 쿠키는 컨트롤러에서 처리
-        return null;
-      }
-      return null;
-    }
+  private async _generateRefreshToken(user: IUser): Promise<string> {
+    const payload = { id: user.id };
+    const token = this.jwtService.sign(payload, {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      expiresIn: '14d',
+    });
+    await this.redisClient.set(`rt:${user.id}`, token, 'EX', 60 * 60 * 24 * 14); // 14 days
+    return token;
   }
 
-  private ssoToUser = (ssoPayload: UserSSOType2025): IUserCreate => {
-    // 첫 가입시 DB에 넣기 좋게 변경하는 함수
+  private _ssoToUser(ssoPayload: UserSSOType2025): IUserCreate {
     return {
       nameKr: ssoPayload.user_nm,
       nameEn: ssoPayload.user_eng_nm,
@@ -161,7 +200,7 @@ export class AuthService {
       type: UserAuthBinaryEnum.USER,
       studentNumber: parseInt(ssoPayload.std_no)
         ? parseInt(ssoPayload.std_no)
-        : (parseInt(ssoPayload.emp_no) ?? 1),
+        : parseInt(ssoPayload.emp_no) ?? 1,
     };
-  };
+  }
 }

@@ -117,7 +117,7 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token has been invalidated.');
     }
 
-    const user = await this.userPublicService.fetch(payload.id);
+    const user = await this.userPublicService.fetchById(payload.id);
     if (!user) {
       throw new UnauthorizedException('User not found.');
     }
@@ -150,14 +150,14 @@ export class AuthService {
       code: code,
     });
 
-    const { data } = await firstValueFrom(
-      this.httpService.post(url, body.toString(), {
+    const response = await firstValueFrom(
+      this.httpService.post<{ id_token: string }>(url, body.toString(), {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       }),
     );
-    return data;
+    return response.data;
   }
 
   private _decodeIdToken(token: string): any {

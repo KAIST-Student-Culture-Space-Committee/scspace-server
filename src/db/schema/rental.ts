@@ -31,6 +31,14 @@ export const Rental = mysqlTable('rental', {
     timeReturn: bigint('time_return', { mode: 'number' }).notNull().default(0),
     timeConfirm: bigint('time_confirm', { mode: 'number' }).notNull().default(0),
     certName: varchar('cert_name', { length: 256 }).notNull(),
+    groupName: varchar('group_name', { length: 128 }),
+    contact: varchar('contact', { length: 64 }),
+    emergencyContact: varchar('emergency_contact', { length: 64 }),
+    usingLocation: varchar('using_location', { length: 256 }),
+    usingPurpose: varchar('using_purpose', { length: 512 }),
+    approverId: int('approver_id').references(() => User.id, { onDelete: 'set null' }),
+    returnApproverId: int('return_approver_id').references(() => User.id, { onDelete: 'set null' }),
+    status: int('status').notNull().default(0),
     // Foreign keys
     // userId references users.userId O
     // goodsId references goods.goodsId O

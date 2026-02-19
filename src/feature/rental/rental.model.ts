@@ -11,6 +11,14 @@ export class MRental implements IRental {
     timeReturn: IRental['timeReturn'];
     timeConfirm: IRental['timeConfirm'];
     certName: IRental['certName'];
+    groupName: IRental['groupName'];
+    contact: IRental['contact'];
+    emergencyContact: IRental['emergencyContact'];
+    usingLocation: IRental['usingLocation'];
+    usingPurpose: IRental['usingPurpose'];
+    approverId: IRental['approverId'];
+    returnApproverId: IRental['returnApproverId'];
+    status: IRental['status'];
 
     constructor(data: IRental) {
         this.id = data.id;
@@ -22,6 +30,14 @@ export class MRental implements IRental {
         this.timeReturn = data.timeReturn;
         this.timeConfirm = data.timeConfirm;
         this.certName = data.certName;
+        this.groupName = data.groupName;
+        this.contact = data.contact;
+        this.emergencyContact = data.emergencyContact;
+        this.usingLocation = data.usingLocation;
+        this.usingPurpose = data.usingPurpose;
+        this.approverId = data.approverId;
+        this.returnApproverId = data.returnApproverId;
+        this.status = data.status;
     }
 
     static fromDB(rental: typeof Rental.$inferSelect): IRental {
@@ -35,6 +51,14 @@ export class MRental implements IRental {
             timeReturn: rental.timeReturn,
             timeConfirm: rental.timeConfirm,
             certName: rental.certName,
+            groupName: rental.groupName,
+            contact: rental.contact,
+            emergencyContact: rental.emergencyContact,
+            usingLocation: rental.usingLocation,
+            usingPurpose: rental.usingPurpose,
+            approverId: rental.approverId,
+            returnApproverId: rental.returnApproverId,
+            status: rental.status,
         };
     }
 }

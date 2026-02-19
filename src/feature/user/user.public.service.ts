@@ -41,6 +41,10 @@ export class UserPublicService {
     return (await this.userRepository.fetchAll(studentNumber)).map(MUser.fromDB);
   }
 
+  async search(keyword: string, limit: number = 20): Promise<IUser[]> {
+    return (await this.userRepository.search(keyword, limit)).map(MUser.fromDB);
+  }
+
   /**
    * @param type : use type ENUM - worker, admin, manager, etc
    */

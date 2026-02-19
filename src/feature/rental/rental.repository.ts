@@ -24,6 +24,7 @@ import {
     count,
     ne,
     asc,
+    sql,
 } from 'drizzle-orm';
 import {
     IRentalCreate,
@@ -33,6 +34,7 @@ import {
     IGoodsFilter,
     IGoodsAvailabilityCheck,
 } from '@scspace-depot/types/rental';
+import { RentalStatusEnum } from '@scspace-depot/enums/rental.enum';
 import { getNow } from '@scspace-server/common/utils';
 import { IDataResponse } from '@scspace-depot/types/common/common.type';
 import { MAX_RENTAL_LIMIT } from "@scspace-depot/consts/rental.const"
@@ -44,7 +46,16 @@ export class RentalRepository {
     ) { }
 
     // Rental CRUD operations
-    async createRental(rental: IRentalCreate): Promise<number> {
+    async createRental(rental: IRentalCreate & Partial<{
+        groupName: string | null;
+        contact: string | null;
+        emergencyContact: string | null;
+        usingLocation: string | null;
+        usingPurpose: string | null;
+        approverId: number | null;
+        returnApproverId: number | null;
+        status: RentalStatusEnum;
+    }>): Promise<number> {
         const result = await this.db.insert(Rental).values({
             ...rental,
             timeReturn: 0,
@@ -52,6 +63,43 @@ export class RentalRepository {
             certName: "Certificate Name",
         });
         return result[0].insertId;
+    }
+
+    async createRentalWithAtomicStock(rental: IRentalCreate & Partial<{
+        groupName: string | null;
+        contact: string | null;
+        emergencyContact: string | null;
+        usingLocation: string | null;
+        usingPurpose: string | null;
+        approverId: number | null;
+        returnApproverId: number | null;
+        status: RentalStatusEnum;
+    }>): Promise<number | null> {
+        return this.db.transaction(async (tx) => {
+            const stockUpdateResult = await tx.update(Goods)
+                .set({
+                    countNow: sql`${Goods.countNow} - ${rental.count}`
+                })
+                .where(
+                    and(
+                        eq(Goods.id, rental.goodsId),
+                        gte(Goods.countNow, rental.count)
+                    )
+                );
+
+            if (stockUpdateResult[0].affectedRows === 0) {
+                return null;
+            }
+
+            const insertResult = await tx.insert(Rental).values({
+                ...rental,
+                timeReturn: 0,
+                timeConfirm: 0,
+                certName: "Certificate Name",
+            });
+
+            return insertResult[0].insertId;
+        });
     }
 
     async fetchRentalById(id: number): Promise<typeof Rental.$inferSelect | null> {
@@ -125,11 +173,22 @@ export class RentalRepository {
     }
 
     async returnRental(id: number, timeReturn: number): Promise<void> {
-        await this.db.update(Rental).set({ timeReturn }).where(eq(Rental.id, id));
+        await this.db.update(Rental)
+            .set({
+                timeReturn,
+                status: RentalStatusEnum.RETURNED
+            })
+            .where(eq(Rental.id, id));
     }
 
-    async confirmReturn(id: number, timeConfirm: number): Promise<void> {
-        await this.db.update(Rental).set({ timeConfirm }).where(eq(Rental.id, id));
+    async confirmReturn(id: number, timeConfirm: number, returnApproverId: number): Promise<void> {
+        await this.db.update(Rental)
+            .set({
+                timeConfirm,
+                returnApproverId,
+                status: RentalStatusEnum.COMPLETED
+            })
+            .where(eq(Rental.id, id));
     }
 
     async deleteRental(id: number): Promise<void> {
@@ -187,7 +246,7 @@ export class RentalRepository {
 
         // 해당 기간 동안 겹치는 대여가 있는지 확인
         const overlappingRentals = await this.db
-            .select({ totalCount: count() })
+            .select({ totalCount: sql<number>`coalesce(sum(${Rental.count}), 0)` })
             .from(Rental)
             .where(
                 and(
@@ -210,7 +269,7 @@ export class RentalRepository {
                 )
             );
 
-        const conflictingCount = overlappingRentals[0]?.totalCount || 0;
+        const conflictingCount = Number(overlappingRentals[0]?.totalCount || 0);
         const availableCount = goods.countAll - conflictingCount;
 
         return availableCount >= requestedCount;

@@ -12,6 +12,7 @@ import {
     IGoodsAvailabilityCheck,
     IUserRentalStatus,
     IRentalCreateClient,
+    IRentalCreateAdmin,
 } from '@scspace-depot/types/rental';
 import { IDataResponse, ISuccessResponse } from '@scspace-depot/types/common';
 import { checkContainAllId, takeAll, getNow, getDate, getTime, getDateEnd, getDateDiffInMinute, getDateString } from '@scspace-server/common/utils';
@@ -25,6 +26,7 @@ import { PdfService } from "@scspace-server/tools/pdf/pdf.service";
 import { ICertificatePdf } from "@scspace-depot/types/pdf/pdf.type";
 import { MailService } from "@scspace-server/tools/mailer/mail.service";
 import { RentalMeta } from "@scspace-depot/enums/mail.enum";
+import { RentalStatusEnum } from "@scspace-depot/enums/rental.enum";
 
 @Injectable()
 export class RentalService {
@@ -39,7 +41,6 @@ export class RentalService {
 
     // Rental 관련 서비스 메서드들
     async createRental(rentalData: IRentalCreateClient & { userId: number }): Promise<{ success: boolean; data: { id: number } }> {
-
         // 1. 대여 개수 제한 확인
         const limitOk = await this.rentalPublicService.checkRentalLimit(rentalData.userId);
         if (!limitOk) {
@@ -61,13 +62,23 @@ export class RentalService {
         // 4. 연체 제재 기간 확인
         const penaltyOk = await this.rentalPublicService.checkUserOverduePenalty(rentalData.userId);
         if (!penaltyOk) {
-            // 사용자 정보를 가져와서 언제부터 대여 가능한지 알려주기
             const user = await this.userPublicService.fetchById(rentalData.userId);
             if (user && user.timeOverdue > 0) {
                 throw new BadRequestException(`User is currently under rental penalty due to overdue returns. Rental will be available again after: ${getDateString(user.timeOverdue)}`);
-            } else {
-                throw new BadRequestException('User is currently under rental penalty due to overdue returns');
             }
+            throw new BadRequestException('User is currently under rental penalty due to overdue returns');
+        }
+
+        const [user, goods] = await Promise.all([
+            this.userPublicService.fetchById(rentalData.userId),
+            this.rentalPublicService.getGoodsById(rentalData.goodsId),
+        ]);
+
+        if (!user) {
+            throw new NotFoundException('User not found');
+        }
+        if (!goods) {
+            throw new NotFoundException('Goods not found');
         }
 
         // 물품 가용성 확인
@@ -88,54 +99,38 @@ export class RentalService {
             throw new BadRequestException('Requested goods are not available for the specified period');
         }
 
-        // 물품 재고 감소
-        const goods = await this.rentalPublicService.getGoodsById(rentalData.goodsId);
-        if (!goods) {
-            throw new NotFoundException('Goods not found');
-        }
-
-        if (goods.countNow < rentalData.count) {
+        const id = await this.rentalRepository.createRentalWithAtomicStock({
+            ...rentalData,
+            timeBorrow: now,
+            timeDue: afterOneWeek,
+            status: RentalStatusEnum.ACTIVE,
+        });
+        if (!id) {
             throw new BadRequestException('Insufficient stock');
         }
 
-        const id = await this.rentalRepository.createRental({
-            ...rentalData,
-            timeBorrow: now,
-            timeDue: afterOneWeek
-        });
-
-        // 재고 업데이트
-        await this.rentalRepository.updateGoodsStock(
-            rentalData.goodsId,
-            goods.countNow - rentalData.count
-        );
-
-        // 3.4: 대여 성공 시 timeOverdue 초기화
-        const user = await this.userPublicService.fetchById(rentalData.userId);
-        if (user && user.timeOverdue !== 0) {
+        // 대여 성공 시 timeOverdue 초기화
+        if (user.timeOverdue !== 0) {
             await this.userPublicService.updateOverdue(rentalData.userId, {
                 timeOverdue: 0
             });
         }
 
-        //Rental Cert
+        // Side effects are best-effort and should not fail a successful rental.
         try {
             const meta: ICertificatePdf = {
-                id: id,
-                user: user,
-                goods: goods,
+                id,
+                user,
+                goods,
                 contact: user.email,
                 rentalFrom: getDateString(now),
                 rentalTo: getDateString(afterOneWeek),
-                rentalDuration: MAX_RENTAL_DURATION, // # day - might be 7
+                rentalDuration: MAX_RENTAL_DURATION,
                 rentalQuantity: rentalData.count,
-            }
+            };
 
-            const res = await this.pdfService.createAndStoreRentalCert(meta)
-
+            const res = await this.pdfService.createAndStoreRentalCert(meta);
             await this.rentalRepository.updateRentalCert(id, res.filename);
-
-            //rental mail notif
 
             await this.mailService.sendMail({
                 to: "scspace.kaist@gmail.com",
@@ -143,19 +138,100 @@ export class RentalService {
                 template: "rentalNotif",
                 subject: "[SCSpace] 새로운 대여가 있습니다.",
                 context: {
-                    meta: meta,
+                    meta,
                 }
-            })
-
+            });
         } catch (error) {
-            console.log(error)
+            await this.reportSideEffectError(error, "rental.service.ts > createRental");
+        }
 
-            const err = error instanceof Error
-                ? error
-                : new Error(String(error))
-            await this.mailService.reportError(err,
-                "pdf.service.ts > createRentalConfirmPdf")
-            throw err;
+        return {
+            success: true,
+            data: { id }
+        };
+    }
+
+    async createRentalAdmin(
+        rentalData: IRentalCreateAdmin & { approverId: number }
+    ): Promise<{ success: boolean; data: { id: number } }> {
+        const { userId, goodsId, count, groupName, contact, emergencyContact, usingLocation, usingPurpose, approverId } = rentalData;
+
+        // Admin override: No penalty checks for admin-created rentals
+
+        const [user, goods] = await Promise.all([
+            this.userPublicService.fetchById(userId),
+            this.rentalPublicService.getGoodsById(goodsId),
+        ]);
+
+        if (!user) {
+            throw new NotFoundException('User not found');
+        }
+        if (!goods) {
+            throw new NotFoundException('Goods not found');
+        }
+
+        const now = getNow();
+        const _now = getDate(now);
+        _now.setDate(_now.getDate() + MAX_RENTAL_DURATION);
+        const afterOneWeek = getDateEnd(getTime(_now));
+
+        const availability: IGoodsAvailabilityCheck = {
+            goodsId,
+            count,
+            timeBorrow: now,
+            timeDue: afterOneWeek,
+        };
+
+        const isAvailable = await this.rentalPublicService.checkGoodsAvailability(availability);
+        if (!isAvailable) {
+            throw new BadRequestException('Requested goods are not available for the specified period');
+        }
+
+        const id = await this.rentalRepository.createRentalWithAtomicStock({
+            userId,
+            goodsId,
+            count,
+            timeBorrow: now,
+            timeDue: afterOneWeek,
+            groupName: groupName || null,
+            contact: contact || null,
+            emergencyContact: emergencyContact || null,
+            usingLocation: usingLocation || null,
+            usingPurpose: usingPurpose || null,
+            approverId,
+            status: RentalStatusEnum.ACTIVE,
+        });
+
+        if (!id) {
+            throw new BadRequestException('Insufficient stock');
+        }
+
+        try {
+            const meta: ICertificatePdf = {
+                id,
+                user,
+                goods,
+                contact: contact || user.email,
+                rentalFrom: getDateString(now),
+                rentalTo: getDateString(afterOneWeek),
+                rentalDuration: MAX_RENTAL_DURATION,
+                rentalQuantity: count,
+            };
+
+            const res = await this.pdfService.createAndStoreRentalCert(meta);
+            await this.rentalRepository.updateRentalCert(id, res.filename);
+
+            await this.mailService.sendMail({
+                to: "scspace.kaist@gmail.com",
+                bcc: "jhlee012@kaist.ac.kr",
+                template: "rentalNotif",
+                subject: "[SCSpace] 새로운 대여가 있습니다.",
+                context: {
+                    meta,
+                }
+            });
+        } catch (error) {
+            await this.reportSideEffectError(error, "rental.service.ts > createRentalAdmin");
         }
 
         return {
@@ -284,7 +360,7 @@ export class RentalService {
         return { success: true };
     }
 
-    async confirmReturn(id: number): Promise<ISuccessResponse> {
+    async confirmReturn(id: number, returnApproverId: number): Promise<ISuccessResponse> {
         const rental = await this.rentalPublicService.getRentalById(id);
         if (!rental) {
             throw new NotFoundException('Rental not found');
@@ -350,13 +426,9 @@ export class RentalService {
 
         await this.fileService.deletePrivateFile(rental.certName)
 
-        await this.rentalRepository.confirmReturn(id, getNow())
+        await this.rentalRepository.confirmReturn(id, getNow(), returnApproverId)
 
         //mailer << Unnecessary - Currently Delayed
-
-
-        const user = await this.userPublicService.fetchById(rental.userId);
-        // Organization << 언젠간 추가되지 않을까? (모름)
 
         return { success: true };
     }
@@ -548,5 +620,17 @@ export class RentalService {
             rentals.map(r => this.rentalReturnRequest(r.id))
         )
         return res.filter(r => r.status === 'fulfilled').map(r => r.value)
+    }
+
+    private async reportSideEffectError(error: unknown, context: string): Promise<void> {
+        const err = error instanceof Error ? error : new Error(String(error));
+        Logger.error(err.message, err.stack, context);
+
+        try {
+            await this.mailService.reportError(err, context);
+        } catch (reportError) {
+            const reportErr = reportError instanceof Error ? reportError : new Error(String(reportError));
+            Logger.error(reportErr.message, reportErr.stack, `${context} > reportError`);
+        }
     }
 }

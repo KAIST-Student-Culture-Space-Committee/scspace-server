@@ -25,6 +25,7 @@ import {
     IGoodsAvailabilityCheck,
     IUserRentalStatus,
     IRentalCreateClient,
+    IRentalCreateAdmin,
 } from '@scspace-depot/types/rental';
 import { IDataResponse, ISuccessResponse } from '@scspace-depot/types/common';
 import { ManagerGuard, MemberGuard, AdminGuard } from '../auth/jwt/jwt.guard';
@@ -43,7 +44,7 @@ export class RentalController {
 
     // 대여 생성
     @Post()
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async createRental(
         @Body() rentalData: IRentalCreateClient,
         @Req() req: Request
@@ -52,6 +53,19 @@ export class RentalController {
         return await this.rentalService.createRental({
             ...rentalData,
             userId: user.id,
+        });
+    }
+
+    @Post('admin')
+    @UseGuards(ManagerGuard)
+    async createRentalAdmin(
+        @Body() rentalData: IRentalCreateAdmin,
+        @Req() req: Request
+    ): Promise<{ success: boolean; data: { id: number } }> {
+        const admin = req.user as IUser;
+        return await this.rentalService.createRentalAdmin({
+            ...rentalData,
+            approverId: admin.id,
         });
     }
 
@@ -138,7 +152,7 @@ export class RentalController {
     // 대여 정보 수정
     @Put(':id')
     // @UseGuards(MemberGuard)
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async updateRental(
         @Param('id', ParseIntPipe) id: number,
         @Body() updates: IRentalUpdate
@@ -149,7 +163,7 @@ export class RentalController {
     // 물품 반납
     @Put(':id/return')
     // @UseGuards(MemberGuard)
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async returnRental(
         @Param('id', ParseIntPipe) id: number,
     ): Promise<ISuccessResponse> {
@@ -161,8 +175,10 @@ export class RentalController {
     @UseGuards(ManagerGuard)
     async confirmReturn(
         @Param('id', ParseIntPipe) id: number,
+        @Req() req: Request,
     ): Promise<ISuccessResponse> {
-        return await this.rentalService.confirmReturn(id);
+        const manager = req.user as IUser;
+        return await this.rentalService.confirmReturn(id, manager.id);
     }
 
     // 대여 삭제

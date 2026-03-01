@@ -26,26 +26,11 @@ async function bootstrap() {
 
   app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
 
-  // CORS 설정
+  // CORS 설정 (임시 전체 허용 - 추후 반드시 allowlist로 복구)
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:33000',
-      'http://localhost:33001',
-      'http://localhost',
-      'https://iam2.kaist.ac.kr',
-      'https://scspace.kws.sparcs.net'
-    ],
+    origin: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With',
-      'Accept',
-      'Origin'
-    ],
     optionsSuccessStatus: 200 // IE11 지원을 위한 설정
   });
 

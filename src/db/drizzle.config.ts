@@ -2,8 +2,8 @@ import { defineConfig } from 'drizzle-kit';
 import { config } from 'dotenv';
 import path from 'path';
 config();
-const { DB_HOST, DB_PORT, DB_USER, DB_PWD, DB_NAME } = process.env;
-const DB_URL = `mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}`;
+const { MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PWD, MYSQL_NAME } = process.env;
+const DB_URL = `mysql://${MYSQL_USER}:${MYSQL_PWD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_NAME}`;
 
 console.log(path.resolve(__dirname, './schema'));
 console.log(path.resolve(__dirname, './migrations'));

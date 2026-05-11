@@ -38,15 +38,13 @@ export class AuthService {
 
     const saved = await this.redisClient.get(key);
 
-    //console.log('[REDIS SET] Key:', key, 'Value:', saved);
-
     const url = new URL(this.configService.get('SSO_URL'));
     url.searchParams.set('client_id', this.configService.get('CLIENT_ID'));
     url.searchParams.set(
       'redirect_uri',
       this.configService.get('REDIRECT_URI'),
     );
-    //console.log(this.configService.get('REDIRECT_URI'));
+
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('state', state);
     url.searchParams.set('nonce', nonce);
@@ -66,24 +64,21 @@ export class AuthService {
     status : 'consent_required'
     consentToken: string;
   }> {
-    console.log(state, code);
     if (!state || !code) {
       throw new UnauthorizedException('State or code is missing');
     }
-    //console.log("State and code are present");
+
     const stateDataStr = await this.redisClient.get(`oauth-state:${state}`);
     if (!stateDataStr) {
       throw new UnauthorizedException('Invalid or expired state');
     }
-    //console.log("State data found in Redis"); 
+
     await this.redisClient.del(`oauth-state:${state}`);
     const { nonce } = JSON.parse(stateDataStr);
 
     const tokenResponse = await this._exchangeCodeForToken(code); // get info
-    //console.log("[TOKEN RESPONSE]", tokenResponse);
 
     const idTokenPayload = this._decodeIdToken(tokenResponse.id_token);
-    //console.log("[ID TOKEN PAYLOAD]", JSON.stringify(idTokenPayload,null,2  ));
 
 
     if (idTokenPayload.nonce !== nonce) {
@@ -92,37 +87,20 @@ export class AuthService {
 
     const ssoUser = idTokenPayload as UserSSOType2025;
     const userCreatePayload = this._ssoToUser(ssoUser);
-    //console.log("[USER CREATE PAYLOAD]", JSON.stringify(userCreatePayload,null,2) );
+    
 
-    // break point
     let user = await this.userPublicService.fetchByStudentNumber(
       userCreatePayload.studentNumber,
     );
 
     let isNewUser = false;
-    console.log("user", user);
 
-    if(!user){ // 사실..user가 없으면 privacy consent도 없긴함. 그러면 굳이 userPrivacyConsentRequired에서 user를 찾을 필요 없이, user가 없으면 바로 개인정보 수집 동의 페이지로 보내는 게 나을듯.
-      console.log("No user found. User needs to accept privacy consent.");
+    if(!user){ 
       const consentToken = randomBytes(16).toString('hex');
       await this.redisClient.set(`privacy-consent:${consentToken}`, JSON.stringify(userCreatePayload), 'EX', 600); // 10분 동안 유효한 토큰 저장
       return { status: 'consent_required', consentToken };
       }
     
-
-    /*
-    if (!user) {
-      isNewUser = true;
-      user = await this.userPublicService.insert(userCreatePayload); // data 넣는 부분
-      const memberExist =
-        await this.organizationPublicService.fetchMembersById(1);
-      if (!memberExist.some((member) => member.userId === user.id)) {
-        await this.organizationPublicService.insertMember(1, user.id);
-      }
-    }
-
-    Logger.log('User logged in:', { id: user.id, studentNumber: user.studentNumber });
-    */
     const accessToken = await this._generateAccessToken(user);
     const refreshToken = await this._generateRefreshToken(user);
 
@@ -141,7 +119,7 @@ export class AuthService {
     userCreatePayload.studentNumber,
   );
 
-  let isNewUser = false; // this need?
+  let isNewUser = false; 
 
   if (!user) {
     isNewUser = true;
@@ -176,7 +154,6 @@ export class AuthService {
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not found.');
     }
-    console.log("iwanna refresh access token");
     let payload;
     try {
       payload = this.jwtService.verify(refreshToken, {
@@ -224,7 +201,7 @@ async acceptPrivacyConsent(consentToken: string): Promise<{
   );
 
 
-  if (!user) { // probably... not...
+  if (!user) { 
 
     user = await this.userPublicService.insert(userCreatePayload);
 
@@ -248,7 +225,7 @@ async acceptPrivacyConsent(consentToken: string): Promise<{
 }
 
   async logout(refreshToken: string): Promise<void> {
-    console.log("imhere");
+
     if (!refreshToken)
       {
         Logger.warn('Logout attempted without refresh token');

@@ -44,14 +44,11 @@ export class AuthController {
     @Query('code') code: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-      //console.log("State =", state);
-      //console.log("Code =", code);
-
+      
       try {
         const result = await this.authService.handleSsoCallback(state, code);  
         
         if(result.status === 'consent_required') {
-          console.log("Consent required. Redirecting to privacy consent page.");
           return res.redirect(
             `${this.configService.get<string>(
               'NEXT_PUBLIC_APP_URL',
@@ -106,8 +103,6 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    console.log('refresh endpoint called');
-  console.log('refreshToken cookie =', req.cookies.refreshToken ? 'exists' : 'missing');
 
     const newAccessToken = await this.authService.refreshAccessToken(
       req.cookies.refreshToken,
@@ -157,16 +152,12 @@ export class AuthController {
 
     const accessToken = req.cookies?.accessToken; 
     const refreshToken = req.cookies?.refreshToken;
-    //console.log("imhere");
-    //console.log("accessToken =", accessToken);
-    //console.log("refreshToken =", refreshToken);
-
+  
     if(accessToken){
       try {
-        console.log("accessTokenExists");
         
         const user = await this.getUserInfoFromAccessToken(accessToken);
-        console.log("user from access token =", user);
+
         if(user) {
           return{
             isLogined: true,
@@ -183,14 +174,12 @@ export class AuthController {
           }
         }
       } catch(error){
-        console.log("accessTokenExistsButError");
         Logger.warn('Access token invalid or expired. ');
       }
     }
 
     if(refreshToken){
         try{
-        console.log("accessTokenNotExists");
         const newAccessToken = await this.authService.refreshAccessToken(refreshToken);
         res.cookie('accessToken', newAccessToken, {
           maxAge: 30 * 60 * 1000,
@@ -198,7 +187,7 @@ export class AuthController {
         });
 
         const user = await this.getUserInfoFromAccessToken(newAccessToken);
-        console.log("user from access token =", user);
+
         if (user){
           return {
             isLogined: true,

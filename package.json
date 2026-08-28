@@ -32,6 +32,7 @@
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/schedule": "^6.0.0",
     "cron": "^4.3.3",
+    "handlebars": "^4.7.8",
     "ioredis": "^5.4.1",
     "mysql2": "^3.11.0",
     "passport-jwt": "^4.0.1",

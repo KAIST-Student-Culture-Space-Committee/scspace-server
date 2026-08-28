@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   Inject,
   NotFoundException,
@@ -33,6 +34,7 @@ import {
   // IReservation,
   // IReservationSimple,
   IReservationUpdate,
+  ReservationApprovalState,
 } from '@scspace-depot/types/reservation';
 import {
   ReservationStateEnum,
@@ -295,6 +297,7 @@ export class ReservationRepository {
 
   async insert(
     reservationInput: IReservationCreate,
+    state: ReservationStateEnum.GRANT | ReservationStateEnum.WAIT = ReservationStateEnum.GRANT,
   ): Promise<[MReservationSimple, MReservationContent]> {
     const insertData = {
       userId: reservationInput.userId,
@@ -305,7 +308,7 @@ export class ReservationRepository {
       timeTo: reservationInput.timeTo,
       timePost: getNow(),
       timeUpdate: getNow(),
-      state: ReservationStateEnum.GRANT,
+      state,
     } as InferInsertModel<typeof Reservation>;
 
     const [result] = await this.db.insert(Reservation).values(insertData);
@@ -336,18 +339,31 @@ export class ReservationRepository {
     return [reservationCreated[0], reservationContentCreated];
   }
 
-  async update(data: IReservationUpdate): Promise<[MReservationSimple, MReservationContent]> {
+  async update(
+    data: IReservationUpdate,
+    state: ReservationStateEnum.WAIT | undefined,
+    expected: MReservationSimple,
+  ): Promise<[MReservationSimple, MReservationContent]> {
     const updateData = {
-      ...data,
+      title: data.title,
+      timeFrom: data.timeFrom,
+      timeTo: data.timeTo,
+      ...(state === ReservationStateEnum.WAIT ? { state } : {}),
       timeUpdate: getNow(),
     } as Partial<InferInsertModel<typeof Reservation>>;
 
     const [result] = await this.db
       .update(Reservation)
       .set(updateData)
-      .where(eq(Reservation.id, data.id));
+      .where(and(
+        eq(Reservation.id, data.id),
+        eq(Reservation.state, expected.state),
+        eq(Reservation.timeUpdate, expected.timeUpdate),
+        eq(Reservation.timeFrom, expected.timeFrom),
+        eq(Reservation.timeTo, expected.timeTo),
+      ));
     if (!result.affectedRows) {
-      throw new Error('Failed to update reservation');
+      throw new ConflictException('Reservation was changed by another request');
     }
     const { data: reservationUpdated } = await this.fetch({ id: data.id! });
     if (reservationUpdated.length === 0) {
@@ -356,8 +372,12 @@ export class ReservationRepository {
 
     if (data.content) {
       const updateContentData = {
-        id: data.id!,
-        ...data.content
+        description: data.content.description,
+        innerParticipantNumber: data.content.innerParticipantNumber,
+        outerParticipantNumber: data.content.outerParticipantNumber,
+        food: data.content.food,
+        busking: data.content.busking,
+        workerNeed: data.content.workerNeed,
       } as InferInsertModel<typeof ReservationContent>;
 
       const [resultContent] = await this.db
@@ -375,6 +395,63 @@ export class ReservationRepository {
     }
 
     return [reservationUpdated[0], reservationContentUpdated];
+  }
+
+  async updateApprovalState(
+    expected: MReservationSimple,
+    state: ReservationApprovalState,
+  ): Promise<MReservationSimple> {
+    if (state !== ReservationStateEnum.GRANT && state !== ReservationStateEnum.REJECTED) {
+      throw new Error('Invalid reservation approval state');
+    }
+
+    const [result] = await this.db
+      .update(Reservation)
+      .set({ state, timeUpdate: getNow() })
+      .where(and(
+        eq(Reservation.id, expected.id),
+        eq(Reservation.state, ReservationStateEnum.WAIT),
+        eq(Reservation.timeUpdate, expected.timeUpdate),
+        eq(Reservation.timeFrom, expected.timeFrom),
+        eq(Reservation.timeTo, expected.timeTo),
+      ));
+
+    if (!result.affectedRows) {
+      throw new ConflictException('Reservation was changed by another request');
+    }
+
+    const { data: reservations } = await this.fetch({ id: expected.id });
+    if (reservations.length === 0) {
+      throw new NotFoundException('Reservation not found after approval');
+    }
+
+    return reservations[0];
+  }
+
+  async updateWorker(
+    reservationId: number,
+    workerId: number,
+  ): Promise<[MReservationSimple, MReservationContent]> {
+    const [result] = await this.db
+      .update(ReservationContent)
+      .set({ workerId })
+      .where(eq(ReservationContent.id, reservationId));
+
+    if (!result.affectedRows) {
+      throw new Error('Failed to update reservation worker');
+    }
+
+    const { data: reservations } = await this.fetch({ id: reservationId });
+    if (reservations.length === 0) {
+      throw new NotFoundException('Reservation not found after worker update');
+    }
+
+    const content = await this.fetchContent(reservationId);
+    if (!content) {
+      throw new NotFoundException('Reservation content not found after worker update');
+    }
+
+    return [reservations[0], content];
   }
 
 

@@ -3,7 +3,6 @@ import { RentalRepository } from './rental.repository';
 import {
     IRental,
     IGoods,
-    IGoodsFilter,
     IGoodsAvailabilityCheck
 } from '@scspace-depot/types/rental';
 import { MRental, MGoods } from './rental.model';

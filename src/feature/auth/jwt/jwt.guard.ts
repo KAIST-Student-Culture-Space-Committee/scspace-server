@@ -4,7 +4,6 @@ import { IUser } from '@scspace-depot/types/user';
 import { UserUtils } from '@scspace-depot/utils/user.utils';
 import { OrganizationPublicService } from '@scspace-server/feature/organization/organization.public.service';
 import { ReservationPublicService } from '@scspace-server/feature/reservation/reservation.public.service';
-import { inspect } from 'util';
 
 @Injectable()
 export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
@@ -19,12 +18,9 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
   }
 
   // 가장 중요: 예외를 삼키고 user만 반환
-  handleRequest<TUser = any>(
-    err: any,
+  handleRequest<TUser = unknown>(
+    _err: unknown,
     user: TUser,
-    info: any,
-    context: ExecutionContext,
-    status?: any,
   ): TUser | undefined {
     // err나 info가 있어도 UnauthorizedException을 던지지 않음
     // user가 없으면 undefined를 반환 → req.user가 undefined로 세팅됨
@@ -102,14 +98,14 @@ export class UserGuard extends AuthGuard('jwt') {
     if (!can) return false;
 
     const request = context.switchToHttp().getRequest();
-    const user = (request.user as IUser);
+    const user = request.user as IUser;
 
     if (UserUtils.isManager(user.type)) {
       return true;
     }
 
-    const requestUserId = request.params.id;
-    if (parseInt(requestUserId) === (user.id)) {
+    const requestUserId = request.params.id ?? request.params.userId;
+    if (parseInt(requestUserId) === user.id) {
       return true;
     }
     return false;
@@ -141,7 +137,7 @@ export class MemberGuard extends AuthGuard('jwt') {
         if (UserUtils.isManager(user.type)) {
           return true;
         } else {
-          return false
+          return false;
         }
       }
     } else if (request.body?.organizationId) {
@@ -151,14 +147,16 @@ export class MemberGuard extends AuthGuard('jwt') {
         if (parseInt(individualUser) === user.id) {
           return true;
         }
+        return false;
       }
     }
     if (id === 0) {
       return false;
     }
     if (id) {
-      const organization = await this.organizationPublicService.fetchMembersById(id);
-      if (organization.some(member => member.userId === user.id)) {
+      const organization =
+        await this.organizationPublicService.fetchMembersById(id);
+      if (organization.some((member) => member.userId === user.id)) {
         return true;
       }
     }
@@ -168,7 +166,7 @@ export class MemberGuard extends AuthGuard('jwt') {
 
 @Injectable()
 export class MemberGuardWithReservation extends AuthGuard('jwt') {
-  private readonly logger = new Logger("debug");
+  private readonly logger = new Logger('debug');
 
   constructor(
     private readonly organizationPublicService: OrganizationPublicService,
@@ -187,8 +185,9 @@ export class MemberGuardWithReservation extends AuthGuard('jwt') {
     }
     const id = parseInt(
       (request.params && request.params.id) ||
-      (request.query && (request.query as any).id) ||
-      (request.body && (request.body as any).id));
+        (request.query && (request.query as any).id) ||
+        (request.body && (request.body as any).id),
+    );
 
     const reservation = await this.reservationPublicService.fetchById(id);
     if (reservation === null) {
@@ -197,8 +196,10 @@ export class MemberGuardWithReservation extends AuthGuard('jwt') {
     if (reservation.userId === user.id) {
       return true;
     } else if (reservation.organizationId !== 1) {
-      const members = await this.organizationPublicService.fetchMembersById(reservation.organizationId);
-      if (members.some(member => member.userId === user.id)) {
+      const members = await this.organizationPublicService.fetchMembersById(
+        reservation.organizationId,
+      );
+      if (members.some((member) => member.userId === user.id)) {
         return true;
       }
     }
@@ -218,15 +219,27 @@ export class DelegatorGuard extends AuthGuard('jwt') {
     if (!can) return false;
 
     const request = context.switchToHttp().getRequest();
-    const user = (request.user as IUser);
+    const user = request.user as IUser;
     if (UserUtils.isManager(user.type)) {
       return true;
     }
 
-    const delegator = await this.organizationPublicService.fetchDelegatorById(parseInt(request.params.id));
-    if (delegator.id === user.id) {
-      return true;
+    const rawOrganizationId =
+      request.params?.id ?? request.body?.organizationId;
+    const organizationId =
+      typeof rawOrganizationId === 'number'
+        ? rawOrganizationId
+        : typeof rawOrganizationId === 'string' &&
+            /^[1-9]\d*$/.test(rawOrganizationId)
+          ? Number(rawOrganizationId)
+          : NaN;
+
+    if (!Number.isSafeInteger(organizationId) || organizationId <= 0) {
+      return false;
     }
-    return false;
+
+    const organization =
+      await this.organizationPublicService.fetchById(organizationId);
+    return organization?.delegatorId === user.id;
   }
 }

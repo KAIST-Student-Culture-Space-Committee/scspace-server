@@ -9,7 +9,8 @@ import {
   ParseIntPipe,
   Delete,
   UseGuards,
-  Req
+  Req,
+  Patch,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ReservationService } from './reservation.service';
@@ -20,7 +21,8 @@ import {
   IReservationAll,
   IReservationCreateMultiple,
   IReservationMultipleCreateResurt,
-  IReservationApplyWorker
+  IReservationApplyWorker,
+  IReservationApprovalRequest,
 } from '@scspace-depot/types/reservation';
 import { IDataResponse, ISuccessResponse } from '@scspace-depot/types/common';
 import { AdminGuard, ManagerGuard, MemberGuard, MemberGuardWithReservation, WorkerGuard } from '../auth/jwt/jwt.guard';
@@ -112,11 +114,11 @@ export class ReservationController {
   //   });
   // }
 
-  //HOOK: useWaitReservations
-  // @Get('manage')
-  // async getManageReservation(): Promise<IReservationAll[]> {
-  //   return await this.reservationService.getManageReservation();
-  // }
+  @UseGuards(ManagerGuard)
+  @Get('manage')
+  async getManageReservation(): Promise<IReservationAll[]> {
+    return await this.reservationService.getManageReservation();
+  }
 
   // AuthGuard - jwt
   //HOOK: useReservationAPI
@@ -124,8 +126,12 @@ export class ReservationController {
   @Post()
   async postReservation(
     @Body() reservationInput: IReservationCreate,
+    @Req() req: Request,
   ): Promise<IReservation> {
-    return await this.reservationService.postReservation(reservationInput);
+    return await this.reservationService.postReservation(
+      reservationInput,
+      req.user as IUser,
+    );
   }
 
   @UseGuards(ManagerGuard)
@@ -141,8 +147,23 @@ export class ReservationController {
   @Put()
   async updateReservation(
     @Body() reservationInput: IReservationUpdate,
+    @Req() req: Request,
   ): Promise<IReservation> {
-    return await this.reservationService.updateReservation(reservationInput);
+    return await this.reservationService.updateReservation(
+      reservationInput,
+      req.user as IUser,
+    );
+  }
+
+  @UseGuards(ManagerGuard)
+  @Patch('approval')
+  async updateReservationApproval(
+    @Body() approval: IReservationApprovalRequest,
+  ): Promise<IReservation> {
+    return await this.reservationService.updateReservationApproval({
+      id: approval.id,
+      state: approval.state,
+    });
   }
 
   @UseGuards(WorkerGuard)
@@ -173,7 +194,7 @@ export class ReservationController {
   @Delete(':id')
   // 1인 경우를 고려하기 위해 추가
   // userid 비교 
-  async deleteReservation(@Param('id') id: number, @Req() req: Request): Promise<ISuccessResponse> {
+  async deleteReservation(@Param('id', ParseIntPipe) id: number, @Req() req: Request): Promise<ISuccessResponse> {
     return await this.reservationService.deleteReservation(id, (req as any).user as IUser);
   }
 }

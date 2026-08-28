@@ -2,8 +2,9 @@ import { Injectable, Inject, NotFoundException, BadRequestException, Logger } fr
 import { DBAsyncProvider } from 'src/db/db.provider';
 import { MySql2Database } from 'drizzle-orm/mysql2';
 import { Passpin, schema, Reservation, Space, OrganizationMember } from "@schema";
-import { and, between, count, desc, eq, or, ne } from "drizzle-orm";
+import { and, count, desc, eq, gt, lte, or, ne } from "drizzle-orm";
 import { PasspinEnum } from '@scspace-depot/enums/passpin.enum';
+import { ReservationStateEnum } from '@scspace-depot/enums/reservation.enum';
 import { IPasspin, IPasspinSpace, IPasspinWithSpace } from "@scspace-depot/types/passpin";
 import { MPasspin, MPasspinSpace } from "@scspace-server/feature/passpin/passpin.model";
 import { getNow } from "@scspace-server/common/utils";
@@ -44,8 +45,6 @@ export class PasspinRepository {
             throw new NotFoundException(`Passpin with spaceId ${spaceId} & Stauts = 0 not found`);
         }
 
-        Logger.log('fetchSpacepin spaceId : ' + spaceId + ' current_pin : ' + JSON.stringify(current_pin));
-
         const previous_pin = await this.db
             .select()
             .from(Passpin)
@@ -53,8 +52,6 @@ export class PasspinRepository {
             .orderBy(desc(Passpin.id))
             .limit(1)
             .then((pins) => pins[0]);
-
-        Logger.log('fetchSpacepin spaceId : ' + spaceId + ' previous_pin : ' + JSON.stringify(previous_pin));
 
         if (!previous_pin) {
             Logger.log('fetchSpacepin spaceId : ' + spaceId + ' previous_pin is null');
@@ -92,10 +89,9 @@ export class PasspinRepository {
                 Reservation,
                 and(
                     eq(Passpin.spaceId, Reservation.spaceId),
-                    or(
-                        between(Reservation.timeFrom, now - 60, now + 60),
-                        between(Reservation.timeTo, now - 60, now + 60),
-                    )
+                    eq(Reservation.state, ReservationStateEnum.GRANT),
+                    lte(Reservation.timeFrom, now + 60),
+                    gt(Reservation.timeTo, now - 60),
                 )
             )
             .leftJoin(

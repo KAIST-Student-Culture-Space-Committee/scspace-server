@@ -1,16 +1,23 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseIntPipe, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { LotterySeminarService } from "./lottery.seminar.service";
-import { AdminGuard, DelegatorGuard, UserGuard } from "@scspace-server/feature/auth/jwt/jwt.guard";
+import { AdminGuard, DelegatorGuard } from "@scspace-server/feature/auth/jwt/jwt.guard";
 import { ILotteryInfo, ILotteryInfoCreate, ILotteryInfoUpdate } from "@scspace-depot/types/lottery/lottery.info.type";
 import { ISeminarLottery, ISeminarLotteryCreate } from "@scspace-depot/types/lottery/lottery.seminar.type";
 import { ISuccessResponse } from "@scspace-depot/types/common";
 import { IReservationMultipleCreateResurt } from "@scspace-depot/types/reservation";
 import { AuthGuard } from "@nestjs/passport";
+import { IUser } from "@scspace-depot/types/user";
+import { UserUtils } from "@scspace-depot/utils/user.utils";
+import { OrganizationPublicService } from "@scspace-server/feature/organization/organization.public.service";
+import { OrganizationStatusEnum } from "@scspace-depot/enums/organization.enum";
+import { LotterySeminarRepository } from "./lottery.seminar.repository";
 
 @Controller('lottery/seminar')
 export class LotterySeminarController {
   constructor(
     private readonly lotterySeminarService: LotterySeminarService,
+    private readonly lotterySeminarRepository: LotterySeminarRepository,
+    private readonly organizationPublicService: OrganizationPublicService,
   ) { }
 
   @Get("info")
@@ -67,7 +74,7 @@ export class LotterySeminarController {
   @Get()
   async getSeminarLotteryByOrganization(
     @Query('organizationId') organizationId: number,
-    @Query('spaceId') spaceId: number,
+    @Query('spaceId') spaceId: number | undefined,
     @Query('infoId') infoId: number
   ): Promise<ISeminarLottery[]> {
     // Implementation for fetching seminar lottery by organization
@@ -110,23 +117,29 @@ export class LotterySeminarController {
     return await this.lotterySeminarService.getSeminarLotteryTimeSlotCounts({ spaceId, infoId });
   }
 
-  // @UseGuards(DelegatorGuard)
-  @UseGuards(AuthGuard("jwt"))
+  @UseGuards(DelegatorGuard)
   @Post()
   async postSeminarLottery(
     @Body() lottery: ISeminarLotteryCreate
   ): Promise<ISeminarLottery> {
-    // Implementation for posting new seminar lottery
-    return await this.lotterySeminarService.postSeminarLottery({ lottery });
+    return await this.lotterySeminarService.postSeminarLottery({
+      lottery: {
+        infoId: lottery.infoId,
+        organizationId: lottery.organizationId,
+        spaceId: lottery.spaceId,
+        priority: lottery.priority,
+        time: lottery.time,
+      },
+    });
   }
 
-  // @UseGuards(DelegatorGuard)
   @UseGuards(AuthGuard("jwt"))
   @Delete(":id")
   async deleteSeminarLottery(
-    @Param('id') id: number
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: { user: IUser },
   ): Promise<ISuccessResponse> {
-    // Implementation for deleting existing seminar lottery
+    await this.assertCanManageLottery(id, request.user);
     return {
       success: await this.lotterySeminarService.deleteSeminarLottery(id)
     }
@@ -134,17 +147,46 @@ export class LotterySeminarController {
 
   @UseGuards(AdminGuard)
   @Post('draw')
-  async drawInfo(): Promise<ISuccessResponse> {
+  async drawInfo(
+    @Body('infoId', ParseIntPipe) infoId: number,
+  ): Promise<ISuccessResponse> {
     // Implementation for drawing seminar lottery
     return {
-      success: await this.lotterySeminarService.drawing()
+      success: await this.lotterySeminarService.drawing(infoId)
     };
   }
 
   @UseGuards(AdminGuard)
   @Post("apply")
-  async applyInfo(): Promise<IReservationMultipleCreateResurt[]> {
+  async applyInfo(
+    @Body('infoId', ParseIntPipe) infoId: number,
+  ): Promise<IReservationMultipleCreateResurt[]> {
     // Implementation for fetching apply seminar lottery info
-    return await this.lotterySeminarService.applySeminarLottery()
+    return await this.lotterySeminarService.applySeminarLottery(infoId)
   }
+
+  private async assertCanManageLottery(id: number, user: IUser): Promise<void> {
+    if (UserUtils.isManager(user.type)) {
+      return;
+    }
+
+    const [lottery] = await this.lotterySeminarRepository.fetch({ id });
+    if (!lottery) {
+      throw new NotFoundException('Seminar lottery not found');
+    }
+
+    const organization = await this.organizationPublicService.fetchById(lottery.organizationId);
+        if (
+            !organization ||
+            organization.status !== OrganizationStatusEnum.VERIFIED ||
+            organization.delegatorId !== user.id
+        ) {
+            throw new ForbiddenException('Only the verified organization delegator can delete this lottery');
+        }
+
+        const openLotteries = await this.lotterySeminarService.getActiveSeminarLotteryInfo();
+        if (!openLotteries.some(({ id: infoId }) => infoId === lottery.infoId)) {
+            throw new ForbiddenException('Lottery applications can only be deleted during the application period');
+        }
+    }
 }

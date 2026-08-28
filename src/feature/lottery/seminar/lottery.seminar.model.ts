@@ -6,6 +6,7 @@ export class MSeminarLottery implements ISeminarLottery {
     infoId: ISeminarLottery['infoId'];
     organizationId: ISeminarLottery['organizationId'];
     spaceId: ISeminarLottery['spaceId'];
+    priority: ISeminarLottery['priority'];
     time: ISeminarLottery['time'];
     lotteryWin: ISeminarLottery['lotteryWin'];
 
@@ -14,6 +15,7 @@ export class MSeminarLottery implements ISeminarLottery {
         this.infoId = data.infoId;
         this.organizationId = data.organizationId;
         this.spaceId = data.spaceId;
+        this.priority = data.priority;
         this.time = data.time;
         this.lotteryWin = data.lotteryWin;
     }
@@ -24,6 +26,7 @@ export class MSeminarLottery implements ISeminarLottery {
             infoId: lottery.infoId,
             organizationId: lottery.organizationId,
             spaceId: lottery.spaceId,
+            priority: lottery.priority,
             time: lottery.time,
             lotteryWin: lottery.lotteryWin,
         };

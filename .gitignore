@@ -5,6 +5,8 @@
 
 # DB
 /src/db/migrations/*
+!/src/db/migrations/0007_seminar_lottery_priority.sql
+!/src/db/migrations/0008_rental_onsite_workflow.sql
 
 # Logs
 logs

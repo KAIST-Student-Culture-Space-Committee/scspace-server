@@ -3,7 +3,6 @@ import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { join } from 'path';
 import { MailService } from './mail.service';
-import { MailController } from './mail.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as handlebars from 'handlebars';
 
@@ -42,6 +41,5 @@ handlebars.registerHelper('eq', function(arg1, arg2):boolean   {
     ],
     providers: [MailService],
     exports: [MailService],
-    controllers: [MailController],
 })
 export class MailModule { }

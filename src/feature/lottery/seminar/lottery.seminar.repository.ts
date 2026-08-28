@@ -27,6 +27,9 @@ export class LotterySeminarRepository {
         if (params.infoId) {
             whereClause.push(eq(SeminarLottery.infoId, params.infoId));
         }
+        if (params.priority !== undefined) {
+            whereClause.push(eq(SeminarLottery.priority, params.priority));
+        }
         if (params.time !== undefined) {
             whereClause.push(eq(SeminarLottery.time, params.time));
         }

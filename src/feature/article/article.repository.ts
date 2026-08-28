@@ -2,7 +2,6 @@ import {
     Injectable,
     Inject,
     NotFoundException,
-    BadRequestException,
 } from '@nestjs/common';
 import { DBAsyncProvider } from 'src/db/db.provider';
 import { MySql2Database } from 'drizzle-orm/mysql2';
@@ -48,7 +47,7 @@ export class ArticleRepository {
                 ...articleData,
                 timePost: now,
                 timeUpdate: now,
-                state: ArticleStateEnum.HIDE, // visible by default
+                state: articleData.state ?? ArticleStateEnum.HIDE,
                 type: articleData.type || ArticleTypeEnum.NOTICE, // general type by default
             });
 
@@ -189,12 +188,19 @@ export class ArticleRepository {
     async updateArticle(id: number, updateData: IArticleUpdate): Promise<IArticle> {
         await this.getArticleById(id);
 
+        const values: IArticleUpdate & { timeUpdate: number } = {
+            title: updateData.title,
+            content: updateData.content,
+            type: updateData.type,
+            images: updateData.images,
+            files: updateData.files,
+            state: updateData.state,
+            timeUpdate: getNow(),
+        };
+
         await this.db
             .update(Article)
-            .set({
-                ...updateData,
-                timeUpdate: getNow(),
-            })
+            .set(values)
             .where(eq(Article.id, id));
 
         return await this.getArticleById(id);

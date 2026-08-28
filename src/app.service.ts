@@ -13,6 +13,7 @@ import { MySql2Database } from 'drizzle-orm/mysql2';
 // import { getNow } from '@scspace-server/common/utils';
 import { ReservationPublicService } from './feature/reservation/reservation.public.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { BUSINESS_TIME_ZONE } from '@scspace-server/common/utils';
 
 @Injectable()
 export class AppService {
@@ -157,7 +158,10 @@ export class AppService {
   //   }
   // }
 
-  @Cron(CronExpression.EVERY_WEEK, { name: 'backupReservations' })
+  @Cron(CronExpression.EVERY_WEEK, {
+    name: 'backupReservations',
+    timeZone: BUSINESS_TIME_ZONE,
+  })
   async save(): Promise<string> {
     const filename = await this.reservationPublicService.backupReservations();
     Logger.log(filename);

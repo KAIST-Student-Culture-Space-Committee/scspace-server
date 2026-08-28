@@ -1,4 +1,4 @@
-import { int, mysqlTable, serial, varchar } from 'drizzle-orm/mysql-core';
+import { int, mysqlTable, varchar } from 'drizzle-orm/mysql-core';
 
 export const Space = mysqlTable('space', {
   id: int('id').primaryKey().autoincrement().unique(),

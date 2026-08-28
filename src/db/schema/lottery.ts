@@ -22,6 +22,7 @@ export const SeminarLottery = mysqlTable('s_lottery', {
   spaceId: int('space_id')
     .notNull()
     .references(() => Space.id, { onDelete: 'cascade' }),
+  priority: int('priority').notNull(),
   time: int('time').notNull(),
   lotteryWin: int('lottery_win').notNull().default(0), // 0: not winner, 1: winner
 });

@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, Logger } from '@nestjs/common';
 import { DBAsyncProvider } from 'src/db/db.provider';
 import { MySql2Database } from 'drizzle-orm/mysql2';
 import { schema, Organization, OrganizationMember } from '@schema';
@@ -97,4 +97,4 @@ export class OrganizationRepository {
   async delete(organizationId: number): Promise<void> {
     await this.db.delete(Organization).where(eq(Organization.id, organizationId));
   }
-} 
+}

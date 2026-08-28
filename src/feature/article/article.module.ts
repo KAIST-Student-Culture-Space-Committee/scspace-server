@@ -5,7 +5,7 @@ import { ArticleController } from './article.controller';
 import { DBModule } from 'src/db/db.module';
 import { UserModule } from 'src/feature/user/user.module';
 import { MulterModule } from '@nestjs/platform-express';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { FileModule } from '@scspace-server/tools/file/file.module';
 
 @Module({
@@ -14,7 +14,7 @@ import { FileModule } from '@scspace-server/tools/file/file.module';
         UserModule,
         MulterModule.registerAsync({
             imports: [ConfigModule],
-            useFactory: async (config: ConfigService) => ({
+            useFactory: async () => ({
                 dest: './uploads/article',
                 limits: {
                     fileSize: 10 * 1024 * 1024, // 10MB

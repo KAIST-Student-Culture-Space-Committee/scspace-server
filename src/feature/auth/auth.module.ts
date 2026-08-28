@@ -10,7 +10,6 @@ import {
   MemberGuard,
   UserGuard,
 } from './jwt/jwt.guard';
-import { ConfigModule } from '@nestjs/config';
 import { UserModule } from 'src/feature/user/user.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { ReservationModule } from '../reservation/reservation.module';

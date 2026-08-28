@@ -1,16 +1,11 @@
 import { defineConfig } from 'drizzle-kit';
 import { config } from 'dotenv';
-import path from 'path';
 config();
-const { MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PWD, MYSQL_NAME } = process.env;
+const { MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PWD, MYSQL_NAME } =
+  process.env;
 const DB_URL = `mysql://${MYSQL_USER}:${MYSQL_PWD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_NAME}`;
 
-console.log(path.resolve(__dirname, './schema'));
-console.log(path.resolve(__dirname, './migrations'));
-
 export default defineConfig({
-  //schema: path.resolve(__dirname, './schema'), // './schema'는 현재 파일에서 상대 경로
-  //out: path.resolve(__dirname, './migrations'), // 마이그레이션 파일이 생성될 경로
   schema: './packages/server/src/db/schema',
   out: './packages/server/src/db/migrations',
   dialect: 'mysql',

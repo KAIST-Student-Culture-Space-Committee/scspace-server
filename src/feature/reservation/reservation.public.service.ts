@@ -23,7 +23,6 @@ import {
 } from '@scspace-server/feature/reservation/reservation.model';
 import {
   checkContainAllId,
-  getDate,
   getDateDiffInMinute,
   getDateString,
   getNow,
@@ -32,6 +31,8 @@ import {
   takeAll,
   timeRangeCheck,
 } from '@scspace-server/common/utils';
+import { BUSINESS_TIME_ZONE } from '@scspace-server/common/utils';
+import { Temporal } from '@js-temporal/polyfill';
 import {
   IReservationAll,
   IReservationContent,
@@ -64,9 +65,11 @@ export class ReservationPublicService {
     private readonly userPublicService: UserPublicService,
     private readonly organizationPublicService: OrganizationPublicService,
     private readonly mailService: MailService,
-    @Inject(forwardRef(() => LotterySeminarService)) private readonly lotterySeminarService: LotterySeminarService,
-    @Inject(forwardRef(() => LotteryPerformanceService)) private readonly lotteryPerformanceService: LotteryPerformanceService,
-  ) { }
+    @Inject(forwardRef(() => LotterySeminarService))
+    private readonly lotterySeminarService: LotterySeminarService,
+    @Inject(forwardRef(() => LotteryPerformanceService))
+    private readonly lotteryPerformanceService: LotteryPerformanceService,
+  ) {}
 
   async postMultipleReservation(
     reservationInput: IReservationCreateMultiple,
@@ -115,7 +118,7 @@ export class ReservationPublicService {
           time.timeTo,
         );
 
-        const [reservation, _] = await this.reservationRepository.insert({
+        const [reservation] = await this.reservationRepository.insert({
           ...reservationInput,
           timeFrom: time.timeFrom,
           timeTo: time.timeTo,
@@ -166,8 +169,8 @@ export class ReservationPublicService {
 
     const mailResult = {
       data: conv,
-      ...stats
-    }
+      ...stats,
+    };
 
     //for mailer Context
     const reservations: IReservationMultipleCreateResurt = {
@@ -205,7 +208,7 @@ export class ReservationPublicService {
         },
       });
     } catch (error) {
-      console.log(error);
+      Logger.error(error);
       await this.mailService.reportError(
         error instanceof Error ? error : new Error(String(error)),
         'Post Multiple Reservation - Mail Sector',
@@ -230,33 +233,45 @@ export class ReservationPublicService {
     timeFrom?: number,
     timeTo?: number,
   ): Promise<IReservationAll[]> {
-
     if (timeFrom && timeTo) {
-      if (timeFrom > timeTo) throw new BadRequestException('timeFrom must be before timeTo');
+      if (timeFrom > timeTo)
+        throw new BadRequestException('timeFrom must be before timeTo');
       const oneDayInMs = BigInt(60) * BigInt(24);
       timeTo = Number(BigInt(timeTo) + oneDayInMs - BigInt(1));
     }
     // If either timeFrom or timeTo is missing, fetch all reservations for the space
     const { data: reservations } = await this.reservationRepository.fetch({
       spaceId,
-      ...(timeFrom && timeTo ? { timeRange: { timeFrom: timeFrom, timeTo: timeTo } } : {})
+      ...(timeFrom && timeTo
+        ? { timeRange: { timeFrom: timeFrom, timeTo: timeTo } }
+        : {}),
     });
     if (reservations.length === 0) {
       return [];
     }
 
     const userIds = reservations.map((reservation) => reservation.userId);
-    const organizationIds = reservations.map((reservation) => reservation.organizationId);
+    const organizationIds = reservations.map(
+      (reservation) => reservation.organizationId,
+    );
 
-    const [users, space, organizations, reservationContents] = await Promise.all([
-      this.userPublicService.fetchAllByIds(userIds).then(takeAll(userIds, 'users')),
-      this.spacePublicService.fetchById(spaceId),
-      this.organizationPublicService.fetchByIds(organizationIds),
-      this.getReservationContentByIds(reservations.map((reservation) => reservation.id)),
-    ]) as [IUser[], ISpace, IOrganization[], IReservationContent[]];
+    const [users, space, organizations, reservationContents] =
+      (await Promise.all([
+        this.userPublicService
+          .fetchAllByIds(userIds)
+          .then(takeAll(userIds, 'users')),
+        this.spacePublicService.fetchById(spaceId),
+        this.organizationPublicService.fetchByIds(organizationIds),
+        this.getReservationContentByIds(
+          reservations.map((reservation) => reservation.id),
+        ),
+      ])) as [IUser[], ISpace, IOrganization[], IReservationContent[]];
 
-    const workerIds = reservationContents.map(content => content.workerId).filter(id => id !== 0);
-    const workers = await this.userPublicService.fetchAllByIds(workerIds)
+    const workerIds = reservationContents
+      .map((content) => content.workerId)
+      .filter((id) => id !== 0);
+    const workers = await this.userPublicService
+      .fetchAllByIds(workerIds)
       .then(takeAll(workerIds, 'workers'));
 
     checkContainAllId(userIds, users, 'users');
@@ -264,22 +279,53 @@ export class ReservationPublicService {
     checkContainAllId(workerIds, workers, 'workers');
 
     return reservations.map((reservation) => {
-      const content = reservationContents.find(content => content.id === reservation.id)!;
+      const content = reservationContents.find(
+        (content) => content.id === reservation.id,
+      )!;
       return {
         ...reservation,
-        user: users.find(user => user.id === reservation.userId)!,
-        organization: organizations.find(org => org.id === reservation.organizationId)!,
+        user: users.find((user) => user.id === reservation.userId)!,
+        organization: organizations.find(
+          (org) => org.id === reservation.organizationId,
+        )!,
         space,
-        worker: (content.workerId === 0) ? null : workers.find(worker => worker.id === content.workerId)!,
-        content
+        worker:
+          content.workerId === 0
+            ? null
+            : workers.find((worker) => worker.id === content.workerId)!,
+        content,
       };
     });
   }
 
-  async getDailyReservationTimeByOrganization(
-    organizationId: number,
+  async getReservationTimesBySpaceIDBetweenTime(
     spaceId: number,
     timeFrom: number,
+    timeTo: number,
+  ): Promise<{ timeFrom: number; timeTo: number }[]> {
+    if (!timeRangeCheck(timeFrom, timeTo)) {
+      throw new BadRequestException('Invalid time range');
+    }
+
+    const { data: reservations } = await this.reservationRepository.fetch({
+      spaceId,
+      states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
+      timeRange: { timeFrom, timeTo },
+    });
+
+    return reservations
+      .map(({ timeFrom: reservationFrom, timeTo: reservationTo }) => ({
+        timeFrom: reservationFrom,
+        timeTo: reservationTo,
+      }))
+      .sort((a, b) => a.timeFrom - b.timeFrom);
+  }
+
+  async getDailyReservationTimeByOrganization(
+    organizationId: number,
+    spaceIds: number[],
+    timeFrom: number,
+    reservationId: number = 0,
   ): Promise<number> {
     if (!timeFrom) {
       throw new BadRequestException('timeFrom is required');
@@ -290,34 +336,37 @@ export class ReservationPublicService {
 
     const { data: todayReservations } = await this.reservationRepository.fetch({
       organizationId: organizationId,
-      spaceId: spaceId,
-      state: ReservationStateEnum.GRANT,
+      spaceIds,
+      states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
       timeRange: {
         timeFrom: Number(startOfDay),
         timeTo: Number(endOfDay),
       },
     });
 
-    return todayReservations.reduce((acc, reservation) => {
-      return (
-        acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
-      );
-    }, 0);
+    return todayReservations
+      .filter((reservation) => reservation.id !== reservationId)
+      .reduce((acc, reservation) => {
+        return (
+          acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
+        );
+      }, 0);
   }
 
   // 주간 예약 시간을 계산하는 함수
   async getWeeklyReservationTimeByOrganization(
     organizationId: number,
-    spaceId: number,
+    spaceIds: number[],
     timeFrom: number,
+    reservationId: number = 0,
   ): Promise<number> {
     const { weekStart, weekEnd } = getWeekPeriod(timeFrom);
 
     const { data: weeklyReservations } = await this.reservationRepository.fetch(
       {
         organizationId: organizationId,
-        spaceId: spaceId,
-        state: ReservationStateEnum.GRANT,
+        spaceIds,
+        states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
         timeRange: {
           timeFrom: weekStart,
           timeTo: weekEnd,
@@ -325,18 +374,21 @@ export class ReservationPublicService {
       },
     );
 
-    return weeklyReservations.reduce((acc, reservation) => {
-      return (
-        acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
-      );
-    }, 0);
+    return weeklyReservations
+      .filter((reservation) => reservation.id !== reservationId)
+      .reduce((acc, reservation) => {
+        return (
+          acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
+        );
+      }, 0);
   }
 
   // 일간 예약 시간을 계산하는 함수
   async getDailyReservationTime(
     userId: number,
-    spaceId: number,
+    spaceIds: number[],
     timeFrom: number,
+    reservationId: number = 0,
   ): Promise<number> {
     if (!timeFrom) {
       throw new BadRequestException('timeFrom is required');
@@ -347,48 +399,51 @@ export class ReservationPublicService {
 
     const { data: todayReservations } = await this.reservationRepository.fetch({
       userId: userId,
-      spaceId: spaceId,
-      state: ReservationStateEnum.GRANT,
+      spaceIds,
+      states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
       timeRange: {
         timeFrom: Number(startOfDay),
         timeTo: Number(endOfDay),
       },
     });
 
-    return todayReservations.reduce((acc, reservation) => {
-      return (
-        acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
-      );
-    }, 0);
+    return todayReservations
+      .filter((reservation) => reservation.id !== reservationId)
+      .reduce((acc, reservation) => {
+        return (
+          acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
+        );
+      }, 0);
   }
 
   // 주간 예약 시간을 계산하는 함수
   async getWeeklyReservationTime(
     userId: number,
-    spaceId: number,
+    spaceIds: number[],
     timeFrom: number,
+    reservationId: number = 0,
   ): Promise<number> {
-    const startOfWeek =
-      BigInt(~~(timeFrom / (60 * 24 * 7))) * BigInt(60 * 24 * 7);
-    const endOfWeek = startOfWeek + BigInt(60 * 24 * 7) - BigInt(1);
+    const { weekStart, weekEnd } = getWeekPeriod(timeFrom);
 
     const { data: weeklyReservations } = await this.reservationRepository.fetch(
       {
         userId: userId,
-        spaceId: spaceId,
-        state: ReservationStateEnum.GRANT,
+        spaceIds,
+        states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
         timeRange: {
-          timeFrom: Number(startOfWeek),
-          timeTo: Number(endOfWeek),
+          timeFrom: weekStart,
+          timeTo: weekEnd,
         },
       },
     );
 
-    return weeklyReservations.reduce((acc, reservation) => {
-      return (
-        acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
-      );
-    }, 0);
+    return weeklyReservations
+      .filter((reservation) => reservation.id !== reservationId)
+      .reduce((acc, reservation) => {
+        return (
+          acc + getDateDiffInMinute(reservation.timeFrom, reservation.timeTo)
+        );
+      }, 0);
   }
 
   // 시간 제한을 넘어섰는지 검사 (일일, 주간)
@@ -398,15 +453,14 @@ export class ReservationPublicService {
     spaceId: number,
     timeFrom: number,
     timeTo: number,
+    reservationId: number = 0,
   ): Promise<boolean> {
     // 공간위원이면 최대 시간 제한 없음
     if (await this.userPublicService.isManager(userId)) {
       return true;
     }
 
-    const dateFrom = getDate(timeFrom);
-    const dateTo = getDate(timeTo - 1);
-    if (dateFrom.getDate() !== dateTo.getDate()) {
+    if (getDateString(timeFrom) !== getDateString(timeTo - 1)) {
       throw new BadRequestException(
         'Cross-day reservations are not allowed. If you need to reserve across days, please create separate reservations for each day.',
       );
@@ -435,6 +489,37 @@ export class ReservationPublicService {
       );
     }
 
+    return await this.validateQuotaConstraints(
+      userId,
+      organizationId,
+      space,
+      timeFrom,
+      timeTo,
+      reservationId,
+    );
+  }
+
+  async validateQuotaConstraints(
+    userId: number,
+    organizationId: number,
+    space: ISpace,
+    timeFrom: number,
+    timeTo: number,
+    reservationId: number = 0,
+  ): Promise<boolean> {
+    if (await this.userPublicService.isManager(userId)) {
+      return true;
+    }
+
+    const quotaSpaceIds =
+      space.spaceType === SpaceTypeEnum.SEMINAR
+        ? (
+            await this.spacePublicService.fetchAllBySpaceType(
+              SpaceTypeEnum.SEMINAR,
+            )
+          ).map((seminar) => seminar.id)
+        : [space.id];
+
     const newReservationTime = getDateDiffInMinute(timeFrom, timeTo);
     let maxDayTime = reservationMaxDayTime[space.spaceType];
     let maxWeekTime = reservationMaxWeekTime[space.spaceType];
@@ -454,8 +539,18 @@ export class ReservationPublicService {
     let weekly: number;
 
     if (organizationId === 1) {
-      daily = await this.getDailyReservationTime(userId, spaceId, timeFrom);
-      weekly = await this.getWeeklyReservationTime(userId, spaceId, timeFrom);
+      daily = await this.getDailyReservationTime(
+        userId,
+        quotaSpaceIds,
+        timeFrom,
+        reservationId,
+      );
+      weekly = await this.getWeeklyReservationTime(
+        userId,
+        quotaSpaceIds,
+        timeFrom,
+        reservationId,
+      );
       isWithinDailyLimits = daily + newReservationTime <= maxDayTime;
       isWithinWeeklyLimits = weekly + newReservationTime <= maxWeekTime;
     } else {
@@ -463,13 +558,15 @@ export class ReservationPublicService {
       maxWeekTime *= orgWeight;
       daily = await this.getDailyReservationTimeByOrganization(
         organizationId,
-        spaceId,
+        quotaSpaceIds,
         timeFrom,
+        reservationId,
       );
       weekly = await this.getWeeklyReservationTimeByOrganization(
         organizationId,
-        spaceId,
+        quotaSpaceIds,
         timeFrom,
+        reservationId,
       );
       isWithinDailyLimits = daily + newReservationTime <= maxDayTime;
       isWithinWeeklyLimits = weekly + newReservationTime <= maxWeekTime;
@@ -489,6 +586,49 @@ export class ReservationPublicService {
     return isWithinWeeklyLimits && isWithinDailyLimits;
   }
 
+  async validateApprovalConstraints(
+    userId: number,
+    organizationId: number,
+    space: ISpace,
+    timeFrom: number,
+    timeTo: number,
+    reservationId: number,
+  ): Promise<void> {
+    await this.validateQuotaConstraints(
+      userId,
+      organizationId,
+      space,
+      timeFrom,
+      timeTo,
+      reservationId,
+    );
+    await this.validateSpaceTimeConstraints(
+      userId,
+      organizationId,
+      space,
+      timeFrom,
+      timeTo,
+      reservationId,
+    );
+
+    const isAvailable = await this.checkTimeAvailability(
+      space.id,
+      timeFrom,
+      timeTo,
+      reservationId,
+    );
+    if (!isAvailable) {
+      throw new BadRequestException('Time is already reserved');
+    }
+
+    await this.validatePerformanceLotteryConflict(
+      userId,
+      space,
+      timeFrom,
+      timeTo,
+    );
+  }
+
   // 예약 시간 중복 검사
   async checkTimeAvailability(
     spaceId: number,
@@ -499,19 +639,16 @@ export class ReservationPublicService {
     const { data: overlappingReservations } =
       await this.reservationRepository.fetch({
         spaceId: spaceId,
+        states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
         timeRange: {
           timeFrom: timeFrom,
           timeTo: timeTo,
         },
       });
 
-    if (overlappingReservations.length === 0) return true; // 겹치는 예약이 있으면 false
-    if (
-      overlappingReservations.length === 1 &&
-      overlappingReservations[0].id === reservationId
-    )
-      return true; // 예약 ID가 일치하면 겹치지 않는 것으로 간주
-    return false; // 겹치는 예약이 있으면 false
+    return overlappingReservations.every(
+      (reservation) => reservation.id === reservationId,
+    );
   }
 
   async find(params: {
@@ -547,6 +684,7 @@ export class ReservationPublicService {
       spaceId,
       timeFrom,
       timeTo,
+      reservationId,
     );
 
     if (!isAvailable) {
@@ -564,6 +702,7 @@ export class ReservationPublicService {
       space,
       timeFrom,
       timeTo,
+      reservationId,
     );
 
     const isOverlap = await this.checkTimeAvailability(
@@ -663,17 +802,17 @@ export class ReservationPublicService {
       }
 
       // 파일명 생성 (현재 시간 포함)
-      const time = new Date();
+      const time = Temporal.Now.zonedDateTimeISO(BUSINESS_TIME_ZONE);
       const timestamp_str =
-        time.getFullYear() +
+        time.year +
         '-' +
-        time.getMonth() +
+        time.month +
         '-' +
-        time.getDate() +
+        time.day +
         '-' +
-        time.getHours() +
+        time.hour +
         '-' +
-        time.getMinutes();
+        time.minute;
       const filename = `reservation_${timestamp_str}.csv`;
       const filepath = path.join(backupDir, filename);
 
@@ -741,12 +880,12 @@ export class ReservationPublicService {
   }
 
   /**
-     * 조수미홀, 미래홀 예약 시 추첨 기간과 겹치는지 검증
-     * @param userId 사용자 ID
-     * @param space 예약하려는 공간 정보
-     * @param timeFrom 예약 시작 시간 (timestamp)
-     * @param timeTo 예약 종료 시간 (timestamp)
-     */
+   * 조수미홀, 미래홀 예약 시 추첨 기간과 겹치는지 검증
+   * @param userId 사용자 ID
+   * @param space 예약하려는 공간 정보
+   * @param timeFrom 예약 시작 시간 (timestamp)
+   * @param timeTo 예약 종료 시간 (timestamp)
+   */
   async validatePerformanceLotteryConflict(
     userId: number,
     space: ISpace,
@@ -754,7 +893,10 @@ export class ReservationPublicService {
     timeTo: number,
   ): Promise<void> {
     // 조수미홀, 미래홀 이 아니면 검증하지 않음
-    if (space.spaceType !== SpaceTypeEnum.SUMI && space.spaceType !== SpaceTypeEnum.MIRAE) {
+    if (
+      space.spaceType !== SpaceTypeEnum.SUMI &&
+      space.spaceType !== SpaceTypeEnum.MIRAE
+    ) {
       return;
     }
 
@@ -800,8 +942,12 @@ export class ReservationPublicService {
     space: ISpace,
     timeFrom: number,
     timeTo: number,
+    reservationId: number = 0,
   ): Promise<void> {
-    if (space.spaceType !== SpaceTypeEnum.SUMI && space.spaceType !== SpaceTypeEnum.MIRAE) {
+    if (
+      space.spaceType !== SpaceTypeEnum.SUMI &&
+      space.spaceType !== SpaceTypeEnum.MIRAE
+    ) {
       return;
     }
 
@@ -817,25 +963,27 @@ export class ReservationPublicService {
     const reservations = await this.reservationRepository.fetch({
       spaceId: space.id,
       organizationId,
+      states: [ReservationStateEnum.WAIT, ReservationStateEnum.GRANT],
       timeRange: {
         timeFrom: weekStart,
         timeTo: weekEnd,
       },
     });
 
-    let matchReservation: MReservationSimple[] | null = null;
-    if (organizationId === 1) {
-      matchReservation = reservations.data.filter((reservation) => (reservation.userId === userId && reservation.organizationId === 1));
-    } else {
-      matchReservation = reservations.data.filter((reservation) => reservation.organizationId === organizationId);
-    }
+    const matchingReservations = reservations.data.filter(
+      (reservation) =>
+        reservation.id !== reservationId &&
+        (organizationId !== 1 || reservation.userId === userId),
+    );
 
-    let checkArray: number[] = new Array(7).fill(0);
+    const checkArray: number[] = new Array(7).fill(0);
 
-    if (matchReservation) {
-      for (let i = 0; i < reservations.data.length; i++) {
-        const reservationFromTime = Math.floor(reservations.data[i].timeFrom / (24 * 60));
-        const reservationToTime = Math.floor(reservations.data[i].timeTo / (24 * 60));
+    if (matchingReservations.length > 0) {
+      for (const reservation of matchingReservations) {
+        const reservationFromTime = Math.floor(
+          reservation.timeFrom / (24 * 60),
+        );
+        const reservationToTime = Math.floor(reservation.timeTo / (24 * 60));
 
         checkArray[reservationFromTime % 7] += 1;
         checkArray[reservationToTime % 7] += 1;
@@ -851,7 +999,9 @@ export class ReservationPublicService {
       }
 
       if (count > 2) {
-        throw new BadRequestException('Mirae Hall and Sumi Hall can only be reserved for up to 2 days per week.');
+        throw new BadRequestException(
+          'Mirae Hall and Sumi Hall can only be reserved for up to 2 days per week.',
+        );
       }
     }
   }

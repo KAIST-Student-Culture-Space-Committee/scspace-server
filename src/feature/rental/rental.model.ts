@@ -1,5 +1,5 @@
 import { IRental, IGoods } from '@scspace-depot/types/rental';
-import { Rental, Goods, schema } from '@schema';
+import { Rental, Goods } from '@schema';
 
 export class MRental implements IRental {
     id: IRental['id'];
@@ -18,6 +18,8 @@ export class MRental implements IRental {
     usingPurpose: IRental['usingPurpose'];
     approverId: IRental['approverId'];
     returnApproverId: IRental['returnApproverId'];
+    overdueContactedAt: IRental['overdueContactedAt'];
+    overdueContactedById: IRental['overdueContactedById'];
     status: IRental['status'];
 
     constructor(data: IRental) {
@@ -37,6 +39,8 @@ export class MRental implements IRental {
         this.usingPurpose = data.usingPurpose;
         this.approverId = data.approverId;
         this.returnApproverId = data.returnApproverId;
+        this.overdueContactedAt = data.overdueContactedAt;
+        this.overdueContactedById = data.overdueContactedById;
         this.status = data.status;
     }
 
@@ -58,6 +62,8 @@ export class MRental implements IRental {
             usingPurpose: rental.usingPurpose,
             approverId: rental.approverId,
             returnApproverId: rental.returnApproverId,
+            overdueContactedAt: rental.overdueContactedAt,
+            overdueContactedById: rental.overdueContactedById,
             status: rental.status,
         };
     }

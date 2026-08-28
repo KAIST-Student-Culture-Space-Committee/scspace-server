@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { FileController } from './file.controller';
 import { MulterModule } from '@nestjs/platform-express';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { FileService } from './file.service';
 
 @Module({
@@ -9,7 +9,7 @@ import { FileService } from './file.service';
     imports: [
         MulterModule.registerAsync({
             imports: [ConfigModule],
-            useFactory: async (config: ConfigService) => ({})
+            useFactory: async () => ({})
         }),
     ],
     providers: [FileService],

@@ -15,7 +15,6 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { ArticleService } from './article.service';
-import { AuthGuard } from '@nestjs/passport';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
     IArticleCreate,
@@ -23,6 +22,8 @@ import {
     IArticleQuery,
     IArticleWithUser,
     IArticleFetchResult,
+    IArticlePublicFetchResult,
+    IArticlePublicWithUser,
     IArticlePreview,
 } from '@scspace-depot/types/article';
 import { publicStorage } from '@scspace-server/tools/file/file.storage';
@@ -30,8 +31,9 @@ import { ISuccessResponse } from '@scspace-depot/types/common';
 import { Request } from 'express';
 import { IUser } from '@scspace-depot/types/user';
 import { UserUtils } from '@scspace-depot/utils/user.utils';
-import { OptionalJwtAuthGuard } from '../auth/jwt/jwt.guard';
+import { ManagerGuard } from '../auth/jwt/jwt.guard';
 import { ArticleStateEnum } from '@scspace-depot/enums/article.enum';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('article')
 export class ArticleController {
@@ -39,13 +41,19 @@ export class ArticleController {
         private readonly articleService: ArticleService,
     ) { }
 
+    @Public()
     @Get('preview')
     async getArticlePreviews(): Promise<IArticlePreview> {
-        return await this.articleService.getArticlePreviews();
+        const previews = await this.articleService.getArticlePreviews();
+        return {
+            notice: this.toPublicArticle(previews.notice),
+            business: this.toPublicArticle(previews.business),
+            promotion: this.toPublicArticle(previews.promotion),
+        };
     }
 
     @Post()
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     @UseInterceptors(
         FileFieldsInterceptor([
             { name: 'images', maxCount: 12 },
@@ -61,6 +69,9 @@ export class ArticleController {
     ) {
         const user = req.user as IUser;
         const userId = user.id;
+        const state = createData.state === undefined
+            ? ArticleStateEnum.HIDE
+            : this.normalizeArticleState(createData.state);
 
         // Handle uploaded files
         const imageData = files?.images ? JSON.stringify(files.images.map(f => f.filename)) : undefined;
@@ -68,6 +79,7 @@ export class ArticleController {
 
         const articleData = {
             ...createData,
+            state,
             images: imageData,
             files: fileData,
         };
@@ -75,64 +87,72 @@ export class ArticleController {
         return await this.articleService.createArticle(userId, articleData);
     }
 
+    @Public()
     @Get()
-    @UseGuards(OptionalJwtAuthGuard)
     async getArticles(
         @Query() query: IArticleQuery,
-        @Req() req: Request
-    ): Promise<IArticleFetchResult> {
-        const user = req.user as IUser | undefined;
-        const isManager = user ? UserUtils.isManager(user.type) : false;
-
-        if (!user) return await this.articleService.getArticles({ ...query, state: ArticleStateEnum.FOR_ALL });
-        if (!isManager) return await this.articleService.getArticles({ ...query, state: ArticleStateEnum.FOR_KAIST });
-        return await this.articleService.getArticles(query);
+    ): Promise<IArticlePublicFetchResult> {
+        const result = await this.articleService.getArticles({ ...query, state: ArticleStateEnum.FOR_ALL });
+        return this.toPublicFetchResult(result);
     }
 
+    @Public()
     @Get('search')
     async searchArticles(
         @Query('q') searchTerm: string,
-        @Query() query: Omit<IArticleQuery, 'search'>
-    ) {
-        return await this.articleService.searchArticles(searchTerm, query);
+        @Query() query: Omit<IArticleQuery, 'search'>,
+    ): Promise<IArticlePublicFetchResult> {
+        const result = await this.articleService.searchArticles(searchTerm, { ...query, state: ArticleStateEnum.FOR_ALL });
+        return this.toPublicFetchResult(result);
     }
 
+    @Public()
     @Get('type/:type')
     async getArticlesByType(
         @Param('type', ParseIntPipe) type: number,
-        @Query() query: Omit<IArticleQuery, 'type'>
+        @Query() query: Omit<IArticleQuery, 'type'>,
+    ): Promise<IArticlePublicFetchResult> {
+        const result = await this.articleService.getArticlesByType(type, { ...query, state: ArticleStateEnum.FOR_ALL });
+        return this.toPublicFetchResult(result);
+    }
+
+    @Get('manage')
+    @UseGuards(ManagerGuard)
+    async getManagedArticles(
+        @Query() query: IArticleQuery,
+    ): Promise<IArticleFetchResult> {
+        return await this.articleService.getArticles(query);
+    }
+
+    @Get('manage/:id')
+    @UseGuards(ManagerGuard)
+    async getManagedArticleById(
+        @Param('id', ParseIntPipe) id: number,
     ) {
-        return await this.articleService.getArticlesByType(type, query);
+        return await this.articleService.getArticleById(id);
     }
 
     @Get('my')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async getMyArticles(@Req() req: any, @Query() query: Omit<IArticleQuery, 'userId'>) {
         const userId = req.user.id;
         return await this.articleService.getUserArticles(userId, query);
     }
 
+    @Public()
     @Get(':id')
-    @UseGuards(OptionalJwtAuthGuard)
     async getArticleById(
         @Param('id', ParseIntPipe) id: number,
-        @Req() req: Request
-    ) {
-        const user = req.user as IUser | undefined;
-        const isManager = user ? UserUtils.isManager(user.type) : false;
-
+    ): Promise<IArticlePublicWithUser> {
         const data = await this.articleService.getArticleById(id);
 
-        if (data.state === ArticleStateEnum.FOR_ALL) return data;
-        if (data.state === ArticleStateEnum.FOR_KAIST && user) return data;
-        if (data.state === ArticleStateEnum.HIDE && isManager) return data;
-        if (user && data.userId === user.id) return data;
+        if (data.state === ArticleStateEnum.FOR_ALL) return this.toPublicArticle(data);
 
         throw new BadRequestException('You do not have permission to view this article.');
     }
 
     @Put(':id')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async updateArticle(
         @Param('id', ParseIntPipe) id: number,
         @Req() req: Request,
@@ -141,12 +161,15 @@ export class ArticleController {
         const user = req.user as IUser;
         const userId = user.id;
         const isManager = UserUtils.isManager(user.type);
+        const safeUpdateData = updateData.state === undefined
+            ? updateData
+            : { ...updateData, state: this.normalizeArticleState(updateData.state) };
 
-        return await this.articleService.updateArticle(id, userId, updateData, isManager);
+        return await this.articleService.updateArticle(id, userId, safeUpdateData, isManager);
     }
 
     @Put(':id/image')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     @UseInterceptors(
         FileFieldsInterceptor([
             { name: 'images', maxCount: 20 },
@@ -169,7 +192,7 @@ export class ArticleController {
     }
 
     @Put(':id/file')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     @UseInterceptors(
         FileFieldsInterceptor([
             { name: 'images', maxCount: 20 },
@@ -197,26 +220,59 @@ export class ArticleController {
     }
 
     @Delete(':id')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async deleteArticle(@Param('id', ParseIntPipe) id: number, @Req() req: any): Promise<ISuccessResponse> {
         const userId = req.user.id;
-        const isAdmin = req.user.type >= 3; // Assuming admin type is 3 or higher
+        const isManager = UserUtils.isManager(req.user.type);
 
-        await this.articleService.deleteArticle(id, userId, isAdmin);
+        await this.articleService.deleteArticle(id, userId, isManager);
 
         return { success: true };
     }
 
     @Put(':id/state')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(ManagerGuard)
     async showArticle(
         @Param('id', ParseIntPipe) id: number,
         @Req() req: any,
         @Body() body: { state: ArticleStateEnum }
     ) {
         const userId = req.user.id;
-        const isAdmin = req.user.type >= 3;
+        const isManager = UserUtils.isManager(req.user.type);
+        const state = this.normalizeArticleState(body.state);
 
-        return await this.articleService.setArticleState(id, userId, body.state, isAdmin);
+        return await this.articleService.setArticleState(id, userId, state, isManager);
+    }
+
+    private toPublicArticle(article: IArticleWithUser): IArticlePublicWithUser {
+        return {
+            id: article.id,
+            title: article.title,
+            content: article.content,
+            timePost: article.timePost,
+            timeUpdate: article.timeUpdate,
+            state: article.state,
+            type: article.type,
+            images: article.images,
+            files: article.files,
+            user: { nameKr: article.user.nameKr },
+        };
+    }
+
+    private toPublicFetchResult(result: IArticleFetchResult): IArticlePublicFetchResult {
+        return {
+            ...result,
+            articles: result.articles.map(article => this.toPublicArticle(article)),
+        };
+    }
+
+    private normalizeArticleState(state: unknown): ArticleStateEnum {
+        if (state === ArticleStateEnum.HIDE || state === String(ArticleStateEnum.HIDE)) {
+            return ArticleStateEnum.HIDE;
+        }
+        if (state === ArticleStateEnum.FOR_ALL || state === String(ArticleStateEnum.FOR_ALL)) {
+            return ArticleStateEnum.FOR_ALL;
+        }
+        throw new BadRequestException('Article state must be HIDE or FOR_ALL.');
     }
 }

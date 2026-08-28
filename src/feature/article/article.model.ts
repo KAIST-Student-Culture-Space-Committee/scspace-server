@@ -1,5 +1,5 @@
 import { IArticle, IArticleWithUser } from '@scspace-depot/types/article';
-import { Notice as Article, schema, User } from '@schema';
+import { Notice as Article, User } from '@schema';
 
 export class MArticle implements IArticle {
     id: IArticle['id'];

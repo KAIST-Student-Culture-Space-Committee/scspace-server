@@ -1,5 +1,8 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Temporal } from '@js-temporal/polyfill';
 import { OrganizationStatusEnum } from '@scspace-depot/enums/organization.enum';
+
+export const BUSINESS_TIME_ZONE = 'Asia/Seoul';
 
 export function timeRangeCheck(timeFrom: number, timeTo: number): boolean {
   return timeFrom < timeTo;
@@ -24,14 +27,15 @@ export function takeUnique<
   return [...new Set(array)];
 }
 
-export function checkContainAllId<T, K extends number>(
+export function checkContainAllId<T extends { id: K }, K extends number>(
   ids: K[],
   array: T[],
   name?: string,
 ): asserts array is T[] & { [key in K]: T } {
   // 중복을 제외하고, 넣은 id가 모두 값이 잘 나왔는지를 체크해주는 함수
   const uniqueIds = takeUnique(ids);
-  if (ids.some((id) => !uniqueIds.includes(id))) {
+  const returnedIds = new Set(array.map(({ id }) => id));
+  if (uniqueIds.some((id) => !returnedIds.has(id))) {
     throw new NotFoundException(
       `The length of ${name ?? 'array'} does not match | id length: ${uniqueIds.length} || array length: ${array.length}`,
     );
@@ -58,21 +62,25 @@ export function takeExist<T>(name?: string): (array: T[]) => T[] {
 }
 
 export function getNow() {
-  const date = new Date();
-
-  const year = date.getFullYear();
-  const month = date.getMonth() + 12 * year;
-  const day = date.getDate() + 32 * month;
-  const hour = date.getHours() + day * 24;
-  return date.getMinutes() + hour * 60;
+  const now = Temporal.Now.zonedDateTimeISO(BUSINESS_TIME_ZONE);
+  return getLegacyTimeFromUnits(
+    now.year,
+    now.month - 1,
+    now.day,
+    now.hour,
+    now.minute,
+  );
 }
 
 export function getTime(date: Date) {
-  const year = date.getFullYear();
-  const month = date.getMonth() + 12 * year;
-  const day = date.getDate() + 32 * month;
-  const hour = date.getHours() + day * 24;
-  return date.getMinutes() + hour * 60;
+  const dateTime = Temporal.PlainDateTime.from({
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+    hour: date.getHours(),
+    minute: date.getMinutes(),
+  });
+  return getLegacyTimeFromPlainDateTime(dateTime);
 }
 
 export function getDateUnit(time: number) {
@@ -88,9 +96,58 @@ export function getDateUnit(time: number) {
   return { year, month, day, hour, minute };
 }
 
-export function getDate(time: number): Date {
+export function getLegacyTimeFromUnits(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): number {
+  return (((year * 12 + month) * 32 + day) * 24 + hour) * 60 + minute;
+}
+
+export function getPlainDateTime(time: number): Temporal.PlainDateTime {
   const { year, month, day, hour, minute } = getDateUnit(time);
-  return new Date(year, month, day, hour, minute);
+  return Temporal.PlainDateTime.from({
+    year,
+    month: month + 1,
+    day,
+    hour,
+    minute,
+  });
+}
+
+export function addLegacyTimeDays(time: number, days: number): number {
+  return getLegacyTimeFromPlainDateTime(getPlainDateTime(time).add({ days }));
+}
+
+export function getLegacyTimeAtEndOfDay(time: number): number {
+  return getLegacyTimeFromPlainDateTime(
+    getPlainDateTime(time).with({ hour: 23, minute: 59 }),
+  );
+}
+
+function getLegacyTimeFromPlainDateTime(
+  dateTime: Temporal.PlainDateTime,
+): number {
+  return getLegacyTimeFromUnits(
+    dateTime.year,
+    dateTime.month - 1,
+    dateTime.day,
+    dateTime.hour,
+    dateTime.minute,
+  );
+}
+
+export function getDate(time: number): Date {
+  const dateTime = getPlainDateTime(time);
+  return new Date(
+    dateTime.year,
+    dateTime.month - 1,
+    dateTime.day,
+    dateTime.hour,
+    dateTime.minute,
+  );
 }
 
 export function getDateString(time: number) {
@@ -105,9 +162,9 @@ export function getString(time: number) {
 }
 
 export function getDateDiffInMinute(timeBefore: number, timeAfter: number) {
-  const dateBefore = getDate(timeBefore);
-  const dateAfter = getDate(timeAfter);
-  return (dateAfter.getTime() - dateBefore.getTime()) / (1000 * 60);
+  const dateBefore = getPlainDateTime(timeBefore);
+  const dateAfter = getPlainDateTime(timeAfter);
+  return dateBefore.until(dateAfter, { largestUnit: 'minutes' }).minutes;
 }
 
 export function getOrganizationStatusString(status: OrganizationStatusEnum): {
@@ -151,10 +208,27 @@ export function getDateEnd(time: number): number {
   return time - (time % (24 * 60)) + 24 * 60 - 1;
 }
 
-export function getWeekPeriod(time: number): { weekStart: number; weekEnd: number } {
-  const date = getDate(time);
-  const weekStart = getDateBegin(getTime(date) - (date.getDay() * 24 * 60));
-  const weekEnd = getDateEnd(getTime(date) + ((6 - date.getDay()) * 24 * 60));
+export function getWeekPeriod(time: number): {
+  weekStart: number;
+  weekEnd: number;
+} {
+  const date = getPlainDateTime(time).toPlainDate();
+  const monday = date.subtract({ days: date.dayOfWeek - 1 });
+  const sunday = monday.add({ days: 6 });
+  const weekStart = getLegacyTimeFromUnits(
+    monday.year,
+    monday.month - 1,
+    monday.day,
+    0,
+    0,
+  );
+  const weekEnd = getLegacyTimeFromUnits(
+    sunday.year,
+    sunday.month - 1,
+    sunday.day,
+    23,
+    59,
+  );
   return { weekStart, weekEnd };
 }
 

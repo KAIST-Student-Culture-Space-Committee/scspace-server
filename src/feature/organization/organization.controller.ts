@@ -1,12 +1,14 @@
-import { Controller, Get, Post, Delete, Put, Param, ParseIntPipe, Body, UseGuards, BadRequestException, Req } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Put, Param, ParseIntPipe, Body, UseGuards, Req } from '@nestjs/common';
 import { OrganizationService } from './organization.service';
-import { IOrganization, IOrganizationAll, IOrganizationCreate, IOrganizationDelegator, IOrganizationMember, IOrganizationUpdate, IOrganizationUpdateDelegator, IOrganizationUser } from '@scspace-depot/types/organization';
+import { IOrganization, IOrganizationAll, IOrganizationCreate, IOrganizationDelegator, IOrganizationUpdateDelegator, IOrganizationUser } from '@scspace-depot/types/organization';
 import { MOrganizationMember } from './organization.member.model';
 import { ISuccessResponse } from '@scspace-depot/types/common';
 import { OrganizationPublicService } from './organization.public.service';
 import { ManagerGuard, UserGuard, MemberGuard, DelegatorGuard } from '../auth/jwt/jwt.guard';
 import { AuthGuard } from '@nestjs/passport';
 import { OrganizationStatusEnum } from '@scspace-depot/enums/organization.enum';
+import { Request } from 'express';
+import { IUser } from '@scspace-depot/types/user';
 
 @Controller('organization')
 export class OrganizationController {
@@ -47,8 +49,9 @@ export class OrganizationController {
   @Post()
   async createOrganization(
     @Body() organization: IOrganizationCreate,
+    @Req() req: Request,
   ): Promise<IOrganization> {
-    return await this.organizationService.insert(organization);
+    return await this.organizationService.insert(organization, req.user as IUser);
   }
 
   @UseGuards(DelegatorGuard)
@@ -111,4 +114,4 @@ export class OrganizationController {
   ): Promise<ISuccessResponse> {
     return await this.organizationService.delete(id);
   }
-} 
+}

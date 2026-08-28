@@ -13,22 +13,22 @@ import {
     UseInterceptors,
     UploadedFile,
     Logger,
+    Res,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { RentalService } from './rental.service';
 import {
-    IRentalUpdate,
     IRentalAll,
     IGoods,
     IGoodsCreate,
     IGoodsUpdate,
     IGoodsAvailabilityCheck,
     IUserRentalStatus,
-    IRentalCreateClient,
     IRentalCreateAdmin,
+    IRentalUpdateAdmin,
 } from '@scspace-depot/types/rental';
 import { IDataResponse, ISuccessResponse } from '@scspace-depot/types/common';
-import { ManagerGuard, MemberGuard, AdminGuard } from '../auth/jwt/jwt.guard';
+import { ManagerGuard, MemberGuard, UserGuard } from '../auth/jwt/jwt.guard';
 import { IUser } from '@scspace-depot/types/user';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -41,20 +41,6 @@ export class RentalController {
     ) { }
 
     // Rental 관련 엔드포인트들
-
-    // 대여 생성
-    @Post()
-    @UseGuards(ManagerGuard)
-    async createRental(
-        @Body() rentalData: IRentalCreateClient,
-        @Req() req: Request
-    ): Promise<{ success: boolean; data: { id: number } }> {
-        const user = req.user as IUser;
-        return await this.rentalService.createRental({
-            ...rentalData,
-            userId: user.id,
-        });
-    }
 
     @Post('admin')
     @UseGuards(ManagerGuard)
@@ -102,26 +88,51 @@ export class RentalController {
     }
 
     // 특정 대여 조회
+    @Get(':id/certificate')
+    @UseGuards(AuthGuard('jwt'))
+    async downloadRentalCertificate(
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: Request,
+        @Res() res: Response,
+    ): Promise<void> {
+        const filePath = await this.rentalService.getRentalCertificate(id, req.user as IUser);
+
+        return await new Promise<void>((resolveDownload, rejectDownload) => {
+            res.download(filePath, `Rental_Confirmation_No${id}.pdf`, (error) => {
+                if (error) {
+                    rejectDownload(error);
+                    return;
+                }
+                resolveDownload();
+            });
+        });
+    }
+
+    // 특정 대여 조회
     @Get(':id')
     // @UseGuards(UserGuard)
     @UseGuards(AuthGuard('jwt'))
     async getRentalById(
-        @Param('id', ParseIntPipe) id: number
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: Request,
     ): Promise<IRentalAll> {
-        return await this.rentalService.getRentalById(id);
+        return await this.rentalService.getRentalById(id, req.user as IUser);
     }
 
     // 사용자별 대여 목록 조회
     @Get('user/:userId')
-    // @UseGuards(UserGuard)
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(UserGuard)
     async getUserRentals(
         @Param('userId', ParseIntPipe) userId: number,
-        @Query('isActive') isActive?: string
-    ): Promise<IRentalAll[]> {
+        @Query('isActive') isActive?: string,
+        @Query('limit', ParseIntPipe) limit: number = 50,
+        @Query('offset', ParseIntPipe) offset: number = 0,
+    ): Promise<IDataResponse<IRentalAll[]>> {
         const params: IUserRentalStatus = {
             userId,
             isActive: isActive ? isActive === 'true' : undefined,
+            limit,
+            offset,
         };
         return await this.rentalService.getUserRentals(params);
     }
@@ -132,12 +143,16 @@ export class RentalController {
     @UseGuards(AuthGuard('jwt'))
     async getMyRentals(
         @Req() req: Request,
-        @Query('isActive') isActive?: string
-    ): Promise<IRentalAll[]> {
+        @Query('isActive') isActive?: string,
+        @Query('limit', ParseIntPipe) limit: number = 50,
+        @Query('offset', ParseIntPipe) offset: number = 0,
+    ): Promise<IDataResponse<IRentalAll[]>> {
         const user = req.user as IUser;
         const params: IUserRentalStatus = {
             userId: user.id,
             isActive: isActive ? isActive === 'true' : undefined,
+            limit,
+            offset,
         };
         return await this.rentalService.getUserRentals(params);
     }
@@ -149,25 +164,14 @@ export class RentalController {
     //     return await this.rentalService.getOverdueRentals();
     // }
 
-    // 대여 정보 수정
     @Put(':id')
-    // @UseGuards(MemberGuard)
     @UseGuards(ManagerGuard)
     async updateRental(
         @Param('id', ParseIntPipe) id: number,
-        @Body() updates: IRentalUpdate
+        @Body() updates: IRentalUpdateAdmin,
+        @Req() req: Request,
     ): Promise<ISuccessResponse> {
-        return await this.rentalService.updateRental(id, updates);
-    }
-
-    // 물품 반납
-    @Put(':id/return')
-    // @UseGuards(MemberGuard)
-    @UseGuards(ManagerGuard)
-    async returnRental(
-        @Param('id', ParseIntPipe) id: number,
-    ): Promise<ISuccessResponse> {
-        return await this.rentalService.returnRental(id);
+        return await this.rentalService.updateRentalAdmin(id, updates, req.user as IUser);
     }
 
     // 반납 확인 (관리자용)
@@ -178,17 +182,26 @@ export class RentalController {
         @Req() req: Request,
     ): Promise<ISuccessResponse> {
         const manager = req.user as IUser;
-        return await this.rentalService.confirmReturn(id, manager.id);
+        return await this.rentalService.confirmReturn(id, manager);
     }
 
-    // 대여 삭제
-    // @Delete(':id')
-    // @UseGuards(AdminGuard)
-    // async deleteRental(
-    //     @Param('id', ParseIntPipe) id: number
-    // ): Promise<ISuccessResponse> {
-    //     return await this.rentalService.deleteRental(id);
-    // }
+    @Put(':id/contact')
+    @UseGuards(ManagerGuard)
+    async markOverdueContacted(
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: Request,
+    ): Promise<ISuccessResponse> {
+        return await this.rentalService.markOverdueContacted(id, req.user as IUser);
+    }
+
+    @Delete(':id')
+    @UseGuards(ManagerGuard)
+    async cancelRental(
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: Request,
+    ): Promise<ISuccessResponse> {
+        return await this.rentalService.cancelRental(id, req.user as IUser);
+    }
 
     // Goods 관련 엔드포인트들
 
@@ -240,18 +253,19 @@ export class RentalController {
         @Param('id', ParseIntPipe) id: number,
         @UploadedFile() file: Express.Multer.File,
         @Body() updates: Omit<IGoodsUpdate, "countNow" | "countAll"> & {
-            countAll?: string; // string으로 받아서 내부에서 number로 변환
-            countNow?: string;
+            countAll?: string;
         },
     ): Promise<ISuccessResponse> {
         if (file) {
             const imageURI = `/uploads/${file.filename}`;
             updates.imageURI = imageURI;
         }
+        const countAll = updates.countAll === undefined
+            ? undefined
+            : Number.parseInt(updates.countAll, 10);
         return await this.rentalService.updateGoods(id, {
             ...updates,
-            countAll: parseInt(updates.countAll, 10),
-            countNow: parseInt(updates.countNow, 10)
+            countAll,
         });
     }
 

@@ -38,6 +38,8 @@ export const Rental = mysqlTable('rental', {
     usingPurpose: varchar('using_purpose', { length: 512 }),
     approverId: int('approver_id').references(() => User.id, { onDelete: 'set null' }),
     returnApproverId: int('return_approver_id').references(() => User.id, { onDelete: 'set null' }),
+    overdueContactedAt: bigint('overdue_contacted_at', { mode: 'number' }).notNull().default(0),
+    overdueContactedById: int('overdue_contacted_by_id').references(() => User.id, { onDelete: 'set null' }),
     status: int('status').notNull().default(0),
     // Foreign keys
     // userId references users.userId O

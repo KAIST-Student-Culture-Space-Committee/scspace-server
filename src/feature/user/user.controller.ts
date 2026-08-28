@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, Post, Body, Delete, Put, UseGuards, NotFoundException, Patch, Query, Logger, DefaultValuePipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Post, Body, Delete, UseGuards, NotFoundException, Patch, Query, DefaultValuePipe } from '@nestjs/common';
 import { UserService } from './user.service';
 import { IUser, IUserCreate, IUserUpdate } from '@scspace-depot/types/user';
 import { ISuccessResponse } from '@scspace-depot/types/common';

@@ -7,8 +7,6 @@ import {
 } from 'drizzle-orm/mysql-core';
 
 import { User } from './user';
-import { sql } from 'drizzle-orm';
-
 // Organization Table
 export const Qna = mysqlTable('qna', {
   id: int('id').primaryKey().autoincrement().unique(),

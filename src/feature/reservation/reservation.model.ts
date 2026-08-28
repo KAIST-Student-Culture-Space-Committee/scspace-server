@@ -1,5 +1,5 @@
 import { IReservation, IReservationContent, IReservationSimple } from '@scspace-depot/types/reservation';
-import { Reservation, ReservationContent, schema } from '@schema';
+import { Reservation, ReservationContent } from '@schema';
 
 export class MReservationContent implements IReservationContent {
   id: IReservationContent['id'];

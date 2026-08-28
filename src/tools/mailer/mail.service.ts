@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
 import { IMail } from '@scspace-depot/types/mail';
 import { ISuccessResponse } from '@scspace-depot/types/common';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
+
   constructor(private mailerService: MailerService) { }
   // 템플릿을 사용한 메일 보내기
   async sendMail({ subject, template, to, cc, bcc, context, replyTo }: IMail): Promise<ISuccessResponse> {
@@ -23,8 +25,7 @@ export class MailService {
       return { success: true };
     }
     ).catch((error) => {
-      console.error('템플릿 메일 전송 실패:', error);
-      this.reportError(error, "Error from sendMail()").then();
+      this.logger.error('템플릿 메일 전송 실패', error);
       const err = new Error("템플릿 메일 전송에 실패했습니다.");
       err.name = "MailSendError";
       throw err;
@@ -40,16 +41,18 @@ export class MailService {
       additionalContext: additionalContext || 'No additional context provided'
     };
 
-    return this.sendMail({
-      to: ['jhlee012@kaist.ac.kr', "seoho7777.kim@gmail.com"],
-      subject: `[SCSpace-DEV] Error Report - ${error.name}`,
-      template: 'errorLog',
-      context: {
-        meta: errorMeta
-      },
-    });
+    try {
+      return await this.sendMail({
+        to: ['jhlee012@kaist.ac.kr', "seoho7777.kim@gmail.com"],
+        subject: `[SCSpace-DEV] Error Report - ${error.name}`,
+        template: 'errorLog',
+        context: {
+          meta: errorMeta
+        },
+      });
+    } catch (reportError) {
+      this.logger.error('에러 보고 메일 전송 실패', reportError);
+      return { success: false };
+    }
   }
 }
-
-
-//test commit

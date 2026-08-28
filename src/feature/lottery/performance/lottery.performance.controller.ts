@@ -1,15 +1,22 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseIntPipe, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { LotteryPerformanceService } from "./lottery.performance.service";
 import { AdminGuard, DelegatorGuard } from "@scspace-server/feature/auth/jwt/jwt.guard";
 import { ILotteryInfo, ILotteryInfoCreate, ILotteryInfoUpdate } from "@scspace-depot/types/lottery/lottery.info.type";
 import { IPerformanceLottery, IPerformanceLotteryCreate } from "@scspace-depot/types/lottery/lottery.performance.type";
 import { ISuccessResponse } from "@scspace-depot/types/common";
 import { AuthGuard } from "@nestjs/passport";
+import { IUser } from "@scspace-depot/types/user";
+import { UserUtils } from "@scspace-depot/utils/user.utils";
+import { OrganizationPublicService } from "@scspace-server/feature/organization/organization.public.service";
+import { OrganizationStatusEnum } from "@scspace-depot/enums/organization.enum";
+import { LotteryPerformanceRepository } from "./lottery.performance.repository";
 
 @Controller('lottery/performance')
 export class LotteryPerformanceController {
     constructor(
         private readonly lotteryPerformanceService: LotteryPerformanceService,
+        private readonly lotteryPerformanceRepository: LotteryPerformanceRepository,
+        private readonly organizationPublicService: OrganizationPublicService,
     ) { }
 
     @Get("info")
@@ -109,23 +116,29 @@ export class LotteryPerformanceController {
         return await this.lotteryPerformanceService.getDrawnPerformanceLottery({ spaceId, infoId });
     }
 
-    // @UseGuards(DelegatorGuard)
-    @UseGuards(AuthGuard("jwt"))
+    @UseGuards(DelegatorGuard)
     @Post()
     async postPerformanceLottery(
         @Body() lottery: IPerformanceLotteryCreate
     ): Promise<IPerformanceLottery> {
-        // Implementation for posting a new performance lottery
-        return await this.lotteryPerformanceService.postPerformanceLottery({ lottery });
+        return await this.lotteryPerformanceService.postPerformanceLottery({
+            lottery: {
+                infoId: lottery.infoId,
+                organizationId: lottery.organizationId,
+                spaceId: lottery.spaceId,
+                priority: lottery.priority,
+                date: lottery.date,
+            },
+        });
     }
 
-    // @UseGuards(DelegatorGuard)
     @UseGuards(AuthGuard("jwt"))
     @Delete(":id")
     async deletePerformanceLottery(
-        @Param('id', ParseIntPipe) id: number
+        @Param('id', ParseIntPipe) id: number,
+        @Req() request: { user: IUser },
     ): Promise<ISuccessResponse> {
-        // Implementation for deleting the existing performance lottery
+        await this.assertCanManageLottery(id, request.user);
         return {
             success: await this.lotteryPerformanceService.deletePerformanceLottery(id, false)
         }
@@ -143,5 +156,30 @@ export class LotteryPerformanceController {
         // 공연 추첨 결과 적용
         await this.lotteryPerformanceService.applyPerformanceLottery();
         return { success: true };
+    }
+
+    private async assertCanManageLottery(id: number, user: IUser): Promise<void> {
+        if (UserUtils.isManager(user.type)) {
+            return;
+        }
+
+        const [lottery] = await this.lotteryPerformanceRepository.fetch({ id });
+        if (!lottery) {
+            throw new NotFoundException('Performance lottery not found');
+        }
+
+        const organization = await this.organizationPublicService.fetchById(lottery.organizationId);
+        if (
+            !organization ||
+            organization.status !== OrganizationStatusEnum.VERIFIED ||
+            organization.delegatorId !== user.id
+        ) {
+            throw new ForbiddenException('Only the verified organization delegator can delete this lottery');
+        }
+
+        const openLotteries = await this.lotteryPerformanceService.getActivePerformanceLotteryInfo();
+        if (!openLotteries.some(({ id: infoId }) => infoId === lottery.infoId)) {
+            throw new ForbiddenException('Lottery applications can only be deleted during the application period');
+        }
     }
 }

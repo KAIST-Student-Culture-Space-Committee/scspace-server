@@ -2,6 +2,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import * as express from 'express';
@@ -22,16 +23,20 @@ async function bootstrap() {
 
   // uploads/public 폴더의 절대 경로 설정 (dev 모드에서는 packages/server가 cwd)
   const uploadsPath = join(process.cwd(), 'uploads', 'public');
-  console.log('Static files path:', uploadsPath);
+  Logger.log(`Static files path: ${uploadsPath}`);
 
   app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
 
-  // CORS 설정 (임시 전체 허용 - 추후 반드시 allowlist로 복구)
+  const configService = app.get(ConfigService);
+  const clientOrigin = new URL(
+    configService.getOrThrow<string>('NEXT_PUBLIC_APP_URL'),
+  ).origin;
+
   app.enableCors({
-    origin: true,
+    origin: clientOrigin,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
-    optionsSuccessStatus: 200 // IE11 지원을 위한 설정
+    optionsSuccessStatus: 200, // IE11 지원을 위한 설정
   });
 
   // 쿠키 파서 설정
@@ -39,7 +44,6 @@ async function bootstrap() {
 
   // URL-encoded 형식의 요청 본문을 파싱 (NestJS에서는 기본적으로 지원됨)
   //app.use(express.urlencoded({ extended: true })); // 추가적인 설정이 필요하면 사용
-  const configService = app.get(ConfigService);
   const port = configService.get<number>('SERVER_PORT') || 3001;
   await app.listen(port);
 }

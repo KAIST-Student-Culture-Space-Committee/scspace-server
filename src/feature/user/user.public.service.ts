@@ -28,6 +28,25 @@ export class UserPublicService {
     return MUser.fromDB(user[0]);
   }
 
+  async fetchByEmail(email: string): Promise<IUser | null> {
+    if (!email?.trim()) {
+      return null;
+    }
+    const user = await this.userRepository.fetch({ email });
+    if (user.length === 0) {
+      return null;
+    }
+    return MUser.fromDB(user[0]);
+  }
+
+  async updateStudentNumber(
+    id: number,
+    studentNumber: number,
+  ): Promise<IUser | null> {
+    const user = await this.userRepository.updateStudentNumber(id, studentNumber);
+    return user ? MUser.fromDB(user) : null;
+  }
+
   async fetchAllByIds(ids: number[]): Promise<IUser[]> {
     const uniqueIds = [...new Set(ids)];
     const users = await this.userRepository.fetch({ ids: uniqueIds });

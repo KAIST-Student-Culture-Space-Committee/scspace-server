@@ -90,9 +90,26 @@ export class AuthService {
     const ssoUser = idTokenPayload as unknown as UserSSOType2025;
     const userCreatePayload = this._ssoToUser(ssoUser);
 
-    const user = await this.userPublicService.fetchByStudentNumber(
-      userCreatePayload.studentNumber,
+    let user = await this.userPublicService.fetchByEmail(
+      userCreatePayload.email,
     );
+
+    if (!user) {
+      user = await this.userPublicService.fetchByStudentNumber(
+        userCreatePayload.studentNumber,
+      );
+    }
+
+    if (
+      user &&
+      user.studentNumber !== userCreatePayload.studentNumber &&
+      userCreatePayload.studentNumber !== 1
+    ) {
+      user = await this.userPublicService.updateStudentNumber(
+        user.id,
+        userCreatePayload.studentNumber,
+      );
+    }
 
     const isNewUser = false;
 

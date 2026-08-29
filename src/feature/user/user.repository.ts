@@ -1,4 +1,10 @@
-import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Inject,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { DBAsyncProvider } from 'src/db/db.provider';
 import { MySql2Database } from 'drizzle-orm/mysql2';
 import { schema, User } from 'src/db/schema';
@@ -18,6 +24,7 @@ export class UserRepository {
     ids?: number[];
     studentNumber?: number;
     type?: number;
+    email?: string;
   }): Promise<MUser[]> {
     const whereConditions = [];
 
@@ -32,6 +39,9 @@ export class UserRepository {
     }
     if (params.type) {
       whereConditions.push(eq(User.type, params.type));
+    }
+    if (params.email) {
+      whereConditions.push(eq(User.email, params.email));
     }
 
     const users = await this.db
@@ -143,6 +153,26 @@ export class UserRepository {
       throw new NotFoundException(`User ID ${id} not found after update.`);
     }
     Logger.log('UPDATE USER ' + JSON.stringify(user));
+    return updatedUser[0];
+  }
+
+  async updateStudentNumber(id: number, studentNumber: number): Promise<MUser> {
+    try {
+      await this.db
+        .update(User)
+        .set({ studentNumber })
+        .where(eq(User.id, id));
+    } catch (error: any) {
+      if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        throw new ConflictException('Student number already exists.');
+      }
+      throw error;
+    }
+
+    const updatedUser = await this.fetch({ id });
+    if (updatedUser.length === 0) {
+      throw new NotFoundException(`User ID ${id} not found after update.`);
+    }
     return updatedUser[0];
   }
 

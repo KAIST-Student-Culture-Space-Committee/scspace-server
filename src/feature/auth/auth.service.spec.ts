@@ -33,6 +33,8 @@ describe('AuthService', () => {
   };
   const userPublicService = {
     fetchByStudentNumber: jest.fn(),
+    fetchByEmail: jest.fn(),
+    updateStudentNumber: jest.fn(),
     fetchById: jest.fn(),
     insert: jest.fn(),
   };
@@ -84,6 +86,13 @@ describe('AuthService', () => {
     redis.get.mockResolvedValue('refresh-token');
     redis.eval.mockResolvedValue(1);
     userPublicService.fetchByStudentNumber.mockResolvedValue(user);
+    userPublicService.fetchByEmail.mockResolvedValue(null);
+    userPublicService.updateStudentNumber.mockImplementation(
+      async (_id: number, studentNumber: number) => ({
+        ...user,
+        studentNumber,
+      }),
+    );
     userPublicService.fetchById.mockResolvedValue(user);
     organizationPublicService.fetchMembersById.mockResolvedValue([]);
     organizationPublicService.insertMember.mockResolvedValue(undefined);
@@ -208,6 +217,22 @@ describe('AuthService', () => {
       'refresh-token',
       'EX',
       60 * 60 * 24 * 14,
+    );
+  });
+
+  it('matches an existing user by email and updates a changed student number', async () => {
+    userPublicService.fetchByEmail.mockResolvedValueOnce({
+      ...user,
+      studentNumber: 20240001,
+    });
+
+    await expect(service().handleSsoCallback('state', 'code')).resolves.toEqual(
+      expect.objectContaining({ status: 'success' }),
+    );
+    expect(userPublicService.fetchByStudentNumber).not.toHaveBeenCalled();
+    expect(userPublicService.updateStudentNumber).toHaveBeenCalledWith(
+      user.id,
+      user.studentNumber,
     );
   });
 

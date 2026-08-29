@@ -5,6 +5,7 @@ import { RentalPublicService } from './rental.public.service';
 import { RentalController } from './rental.controller';
 import { DBModule } from 'src/db/db.module';
 import { UserModule } from 'src/feature/user/user.module';
+import { OrganizationModule } from 'src/feature/organization/organization.module';
 import { MulterModule } from '@nestjs/platform-express';
 import { ConfigModule } from '@nestjs/config';
 import { FileModule } from '@scspace-server/tools/file/file.module';
@@ -15,6 +16,7 @@ import { MailModule } from "@scspace-server/tools/mailer/mail.module";
     imports: [
         DBModule,
         UserModule,
+        OrganizationModule,
         MulterModule.registerAsync({
             imports: [ConfigModule],
             useFactory: async () => ({})

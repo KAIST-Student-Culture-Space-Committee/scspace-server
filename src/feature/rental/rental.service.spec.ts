@@ -76,6 +76,9 @@ jest.mock('./rental.public.service', () => ({ RentalPublicService: class {} }));
 jest.mock('../user/user.public.service', () => ({
   UserPublicService: class {},
 }));
+jest.mock('../organization/organization.public.service', () => ({
+  OrganizationPublicService: class {},
+}));
 
 import { BadRequestException } from '@nestjs/common';
 import { Temporal } from '@js-temporal/polyfill';
@@ -93,6 +96,9 @@ describe('RentalService.confirmReturn', () => {
   const userPublicService = {
     fetchById: jest.fn(),
   };
+  const organizationPublicService = {
+    fetchById: jest.fn(),
+  };
   const fileService = {
     deletePrivateFile: jest.fn(),
   };
@@ -103,6 +109,7 @@ describe('RentalService.confirmReturn', () => {
       rentalRepository as never,
       rentalPublicService as never,
       userPublicService as never,
+      organizationPublicService as never,
       fileService as never,
       {} as never,
       {} as never,
@@ -118,7 +125,9 @@ describe('RentalService.confirmReturn', () => {
       timeBorrow: 100,
       timeDue: 1_000,
       timeReturn: 3_881,
-      timeConfirm: 0,
+      organizationId: 3,
+      rentalWorkerId: 99,
+      returnWorkerId: null,
       certName: 'rental.pdf',
       status: RentalStatusEnum.RETURNED,
       ...overrides,
@@ -154,8 +163,7 @@ describe('RentalService.confirmReturn', () => {
       timeDue: 1_000,
       expectedTimeReturn: returnedAt,
       timeReturn: returnedAt,
-      timeConfirm: 10_000,
-      returnApproverId: 99,
+      returnWorkerId: 99,
       overdueDays: 3,
     });
   });
@@ -181,8 +189,7 @@ describe('RentalService.confirmReturn', () => {
       timeDue: 12_000,
       expectedTimeReturn: 0,
       timeReturn: 10_000,
-      timeConfirm: 10_000,
-      returnApproverId: 99,
+      returnWorkerId: 99,
       overdueDays: undefined,
     });
   });
@@ -206,7 +213,7 @@ describe('RentalService.confirmReturn', () => {
       value: {
         status: RentalStatusEnum.CANCELLED,
         timeReturn: 0,
-        timeConfirm: 0,
+        returnWorkerId: null,
       },
       message: 'This rental cannot be returned',
     },
@@ -215,7 +222,7 @@ describe('RentalService.confirmReturn', () => {
       value: {
         status: RentalStatusEnum.RETURNED,
         timeReturn: 2_000,
-        timeConfirm: 3_000,
+        returnWorkerId: 99,
       },
       message: 'This return has already been confirmed',
     },
@@ -248,11 +255,14 @@ describe('RentalService.updateRentalAdmin', () => {
         id: 5,
         userId: 7,
         goodsId: 8,
+        organizationId: 3,
+        rentalWorkerId: 99,
+        returnWorkerId: null,
         count: 2,
         timeBorrow: 100,
         timeDue: 2_000,
         certName: 'old.pdf',
-        contact: '010-0000-0000',
+        phoneNumber: '010-0000-0000',
         status: RentalStatusEnum.ACTIVE,
       }),
       updateActiveRentalWithStock: jest.fn().mockResolvedValue(true),
@@ -280,6 +290,7 @@ describe('RentalService.updateRentalAdmin', () => {
       rentalRepository as never,
       rentalPublicService as never,
       userPublicService as never,
+      { fetchById: jest.fn().mockResolvedValue({ id: 3, name: 'Org' }) } as never,
       fileService as never,
       pdfService as never,
       {} as never,
@@ -291,8 +302,6 @@ describe('RentalService.updateRentalAdmin', () => {
         {
           count: 3,
           status: RentalStatusEnum.COMPLETED,
-          timeConfirm: 9_999,
-          approverId: 123,
         } as never,
         { id: 99, type: 2 } as never,
       ),
@@ -333,6 +342,7 @@ describe('RentalService.createRentalAdmin', () => {
       rentalRepository as never,
       rentalPublicService as never,
       userPublicService as never,
+      { fetchById: jest.fn().mockResolvedValue({ id: 3, name: 'Org' }) } as never,
       fileService as never,
       pdfService as never,
       mailService as never,
@@ -342,15 +352,15 @@ describe('RentalService.createRentalAdmin', () => {
   function rentalData(overrides: Record<string, unknown> = {}) {
     return {
       userId: 7,
+      organizationId: 3,
       goodsId: 8,
       count: 2,
       timeDue: 20_000,
-      groupName: 'Space Committee',
-      contact: '010-0000-0000',
-      emergencyContact: '010-1111-1111',
-      usingLocation: 'N1',
-      usingPurpose: 'Event',
-      approverId: 99,
+      phoneNumber: '010-0000-0000',
+      emergencyContactPresident: '010-1111-1111',
+      emergencyContactVicePresident: '010-2222-2222',
+      reasonLocation: 'N1',
+      reasonPurpose: 'Event',
       ...overrides,
     };
   }
@@ -398,7 +408,7 @@ describe('RentalService.createRentalAdmin', () => {
         count: 2,
         timeBorrow: 10_000,
         timeDue: 20_000,
-        approverId: 99,
+        rentalWorkerId: 99,
         status: RentalStatusEnum.ACTIVE,
       }),
     );
@@ -410,8 +420,8 @@ describe('RentalService.createRentalAdmin', () => {
     { name: 'zero count', value: { count: 0 } },
     { name: 'fractional count', value: { count: 1.5 } },
     { name: 'past due time', value: { timeDue: 10_000 } },
-    { name: 'blank group', value: { groupName: '   ' } },
-    { name: 'blank purpose', value: { usingPurpose: '' } },
+    { name: 'blank organization', value: { organizationId: 0 } },
+    { name: 'blank purpose', value: { reasonPurpose: '' } },
   ])('rejects $name before reading related records', async ({ value }) => {
     await expect(
       service().createRentalAdmin(rentalData(value) as never),
@@ -494,6 +504,7 @@ describe('RentalService.cancelRental and markOverdueContacted', () => {
     return new RentalService(
       rentalRepository as never,
       rentalPublicService as never,
+      {} as never,
       {} as never,
       fileService as never,
       {} as never,

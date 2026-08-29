@@ -51,7 +51,7 @@ export class RentalController {
         const admin = req.user as IUser;
         return await this.rentalService.createRentalAdmin({
             ...rentalData,
-            approverId: admin.id,
+            rentalWorkerId: admin.id,
         });
     }
 

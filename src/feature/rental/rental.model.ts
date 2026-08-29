@@ -4,20 +4,20 @@ import { Rental, Goods } from '@schema';
 export class MRental implements IRental {
     id: IRental['id'];
     userId: IRental['userId'];
+    organizationId: IRental['organizationId'];
+    rentalWorkerId: IRental['rentalWorkerId'];
+    returnWorkerId: IRental['returnWorkerId'];
     goodsId: IRental['goodsId'];
     count: IRental['count'];
     timeBorrow: IRental['timeBorrow'];
     timeDue: IRental['timeDue'];
     timeReturn: IRental['timeReturn'];
-    timeConfirm: IRental['timeConfirm'];
     certName: IRental['certName'];
-    groupName: IRental['groupName'];
-    contact: IRental['contact'];
-    emergencyContact: IRental['emergencyContact'];
-    usingLocation: IRental['usingLocation'];
-    usingPurpose: IRental['usingPurpose'];
-    approverId: IRental['approverId'];
-    returnApproverId: IRental['returnApproverId'];
+    phoneNumber: IRental['phoneNumber'];
+    emergencyContactPresident: IRental['emergencyContactPresident'];
+    emergencyContactVicePresident: IRental['emergencyContactVicePresident'];
+    reasonLocation: IRental['reasonLocation'];
+    reasonPurpose: IRental['reasonPurpose'];
     overdueContactedAt: IRental['overdueContactedAt'];
     overdueContactedById: IRental['overdueContactedById'];
     status: IRental['status'];
@@ -25,20 +25,20 @@ export class MRental implements IRental {
     constructor(data: IRental) {
         this.id = data.id;
         this.userId = data.userId;
+        this.organizationId = data.organizationId;
+        this.rentalWorkerId = data.rentalWorkerId;
+        this.returnWorkerId = data.returnWorkerId;
         this.goodsId = data.goodsId;
         this.count = data.count;
         this.timeBorrow = data.timeBorrow;
         this.timeDue = data.timeDue;
         this.timeReturn = data.timeReturn;
-        this.timeConfirm = data.timeConfirm;
         this.certName = data.certName;
-        this.groupName = data.groupName;
-        this.contact = data.contact;
-        this.emergencyContact = data.emergencyContact;
-        this.usingLocation = data.usingLocation;
-        this.usingPurpose = data.usingPurpose;
-        this.approverId = data.approverId;
-        this.returnApproverId = data.returnApproverId;
+        this.phoneNumber = data.phoneNumber;
+        this.emergencyContactPresident = data.emergencyContactPresident;
+        this.emergencyContactVicePresident = data.emergencyContactVicePresident;
+        this.reasonLocation = data.reasonLocation;
+        this.reasonPurpose = data.reasonPurpose;
         this.overdueContactedAt = data.overdueContactedAt;
         this.overdueContactedById = data.overdueContactedById;
         this.status = data.status;
@@ -48,20 +48,20 @@ export class MRental implements IRental {
         return {
             id: rental.id,
             userId: rental.userId,
+            organizationId: rental.organizationId,
+            rentalWorkerId: rental.rentalWorkerId,
+            returnWorkerId: rental.returnWorkerId,
             goodsId: rental.goodsId,
             count: rental.count,
             timeBorrow: rental.timeBorrow,
             timeDue: rental.timeDue,
             timeReturn: rental.timeReturn,
-            timeConfirm: rental.timeConfirm,
             certName: rental.certName,
-            groupName: rental.groupName,
-            contact: rental.contact,
-            emergencyContact: rental.emergencyContact,
-            usingLocation: rental.usingLocation,
-            usingPurpose: rental.usingPurpose,
-            approverId: rental.approverId,
-            returnApproverId: rental.returnApproverId,
+            phoneNumber: rental.phoneNumber,
+            emergencyContactPresident: rental.emergencyContactPresident,
+            emergencyContactVicePresident: rental.emergencyContactVicePresident,
+            reasonLocation: rental.reasonLocation,
+            reasonPurpose: rental.reasonPurpose,
             overdueContactedAt: rental.overdueContactedAt,
             overdueContactedById: rental.overdueContactedById,
             status: rental.status,

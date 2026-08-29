@@ -26,6 +26,7 @@ import {
 import { RentalRepository } from './rental.repository';
 import { RentalPublicService } from './rental.public.service';
 import { UserPublicService } from '../user/user.public.service';
+import { OrganizationPublicService } from '../organization/organization.public.service';
 import { IUser } from '@scspace-depot/types/user';
 import {
   RENTAL_CERTIFICATE_PENDING,
@@ -49,42 +50,47 @@ export class RentalService {
     private readonly rentalRepository: RentalRepository,
     private readonly rentalPublicService: RentalPublicService,
     private readonly userPublicService: UserPublicService,
+    private readonly organizationPublicService: OrganizationPublicService,
     private readonly fileService: FileService,
     private readonly pdfService: PdfService,
     private readonly mailService: MailService,
   ) {}
 
   async createRentalAdmin(
-    rentalData: IRentalCreateAdmin & { approverId: number },
+    rentalData: IRentalCreateAdmin & { rentalWorkerId: number },
   ): Promise<{ success: boolean; data: { id: number } }> {
     this.assertDutyHours();
 
     const {
       userId,
+      organizationId,
       goodsId,
       count,
       timeDue,
-      groupName,
-      contact,
-      emergencyContact,
-      usingLocation,
-      usingPurpose,
-      approverId,
+      phoneNumber,
+      emergencyContactPresident,
+      emergencyContactVicePresident,
+      reasonLocation,
+      reasonPurpose,
+      rentalWorkerId,
     } = rentalData;
 
     if (!Number.isSafeInteger(count) || count <= 0) {
       throw new BadRequestException('Rental count must be a positive integer');
+    }
+    if (!Number.isSafeInteger(organizationId) || organizationId <= 0) {
+      throw new BadRequestException('Organization ID must be a positive integer');
     }
     if (!Number.isSafeInteger(timeDue) || timeDue <= getNow()) {
       throw new BadRequestException('Rental due time must be in the future');
     }
     if (
       ![
-        groupName,
-        contact,
-        emergencyContact,
-        usingLocation,
-        usingPurpose,
+        phoneNumber,
+        emergencyContactPresident,
+        emergencyContactVicePresident,
+        reasonLocation,
+        reasonPurpose,
       ].every((value) => value?.trim())
     ) {
       throw new BadRequestException(
@@ -92,13 +98,17 @@ export class RentalService {
       );
     }
 
-    const [user, goods] = await Promise.all([
+    const [user, organization, goods] = await Promise.all([
       this.userPublicService.fetchById(userId),
+      this.organizationPublicService.fetchById(organizationId),
       this.rentalPublicService.getGoodsById(goodsId),
     ]);
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
     }
     if (!goods) {
       throw new NotFoundException('Goods not found');
@@ -123,16 +133,17 @@ export class RentalService {
 
     const id = await this.rentalRepository.createRentalWithAtomicStock({
       userId,
+      organizationId,
       goodsId,
       count,
       timeBorrow: now,
       timeDue,
-      groupName: groupName || null,
-      contact: contact || null,
-      emergencyContact: emergencyContact || null,
-      usingLocation: usingLocation || null,
-      usingPurpose: usingPurpose || null,
-      approverId,
+      phoneNumber,
+      emergencyContactPresident,
+      emergencyContactVicePresident,
+      reasonLocation,
+      reasonPurpose,
+      rentalWorkerId,
       status: RentalStatusEnum.ACTIVE,
     });
 
@@ -145,7 +156,7 @@ export class RentalService {
         id,
         user,
         goods,
-        contact: contact || user.email,
+        contact: phoneNumber || user.email,
         rentalFrom: getDateString(now),
         rentalTo: getDateString(timeDue),
         rentalDuration: Math.ceil(
@@ -161,6 +172,15 @@ export class RentalService {
         bcc: 'jhlee012@kaist.ac.kr',
         template: 'rentalNotif',
         subject: '[SCSpace] 새로운 대여가 있습니다.',
+        context: {
+          meta,
+        },
+      });
+
+      await this.mailService.sendMail({
+        to: user.email,
+        template: 'rentalSuccess',
+        subject: '[SCSpace] 대여 신청이 승인되었습니다.',
         context: {
           meta,
         },
@@ -188,20 +208,25 @@ export class RentalService {
       throw new ForbiddenException('You can only access your own rentals');
     }
 
-    const [user, goods, approver, returnApprover, overdueContactedBy] =
-      await Promise.all([
-        this.userPublicService.fetchById(rental.userId),
-        this.rentalPublicService.getGoodsById(rental.goodsId),
-        rental.approverId
-          ? this.userPublicService.fetchById(rental.approverId)
-          : null,
-        rental.returnApproverId
-          ? this.userPublicService.fetchById(rental.returnApproverId)
-          : null,
-        rental.overdueContactedById
-          ? this.userPublicService.fetchById(rental.overdueContactedById)
-          : null,
-      ]);
+    const [
+      user,
+      goods,
+      organization,
+      rentalWorker,
+      returnWorker,
+      overdueContactedBy,
+    ] = await Promise.all([
+      this.userPublicService.fetchById(rental.userId),
+      this.rentalPublicService.getGoodsById(rental.goodsId),
+      this.organizationPublicService.fetchById(rental.organizationId),
+      this.userPublicService.fetchById(rental.rentalWorkerId),
+      rental.returnWorkerId
+        ? this.userPublicService.fetchById(rental.returnWorkerId)
+        : null,
+      rental.overdueContactedById
+        ? this.userPublicService.fetchById(rental.overdueContactedById)
+        : null,
+    ]);
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -209,13 +234,20 @@ export class RentalService {
     if (!goods) {
       throw new NotFoundException('Goods not found');
     }
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+    if (!rentalWorker) {
+      throw new NotFoundException('Rental worker not found');
+    }
 
     return {
       ...rental,
       user,
+      organization,
       goods,
-      approver,
-      returnApprover,
+      rentalWorker,
+      returnWorker,
       overdueContactedBy,
     };
   }
@@ -257,32 +289,39 @@ export class RentalService {
         rentals.flatMap((rental) =>
           [
             rental.userId,
-            rental.approverId,
-            rental.returnApproverId,
+            rental.rentalWorkerId,
+            rental.returnWorkerId,
             rental.overdueContactedById,
           ].filter((id): id is number => id !== null),
         ),
       ),
     ];
+    const organizationIds = [...new Set(rentals.map((r) => r.organizationId))];
     const goodsIds = [...new Set(rentals.map((r) => r.goodsId))];
 
-    const [users, goods] = (await Promise.all([
+    const [users, organizations, goods] = (await Promise.all([
       this.userPublicService
         .fetchAllByIds(userIds)
         .then(takeAll(userIds, 'users')),
+      this.organizationPublicService.fetchByIds(organizationIds),
       this.rentalPublicService.getGoodsByIds(goodsIds),
-    ])) as [IUser[], IGoods[]];
+    ])) as [
+      IUser[],
+      Awaited<ReturnType<OrganizationPublicService['fetchByIds']>>,
+      IGoods[],
+    ];
 
     checkContainAllId(userIds, users, 'users');
+    checkContainAllId(organizationIds, organizations, 'organizations');
     checkContainAllId(goodsIds, goods, 'goods');
 
     const rentalsWithDetails = rentals.map((rental) => ({
       ...rental,
       user: users.find((u) => u.id === rental.userId)!,
+      organization: organizations.find((o) => o.id === rental.organizationId)!,
       goods: goods.find((g) => g.id === rental.goodsId)!,
-      approver: users.find((u) => u.id === rental.approverId) ?? null,
-      returnApprover:
-        users.find((u) => u.id === rental.returnApproverId) ?? null,
+      rentalWorker: users.find((u) => u.id === rental.rentalWorkerId)!,
+      returnWorker: users.find((u) => u.id === rental.returnWorkerId) ?? null,
       overdueContactedBy:
         users.find((u) => u.id === rental.overdueContactedById) ?? null,
     }));
@@ -316,15 +355,19 @@ export class RentalService {
         rentals.flatMap((rental) =>
           [
             rental.userId,
-            rental.approverId,
-            rental.returnApproverId,
+            rental.rentalWorkerId,
+            rental.returnWorkerId,
             rental.overdueContactedById,
           ].filter((id): id is number => id !== null),
         ),
       ),
     ];
-    const [users, goods] = await Promise.all([
+    const organizationIds = [
+      ...new Set(rentals.map((rental) => rental.organizationId)),
+    ];
+    const [users, organizations, goods] = await Promise.all([
       this.userPublicService.fetchAllByIds(relatedUserIds),
+      this.organizationPublicService.fetchByIds(organizationIds),
       this.rentalPublicService.getGoodsByIds(goodsIds),
     ]);
 
@@ -334,14 +377,15 @@ export class RentalService {
     }
 
     checkContainAllId(goodsIds, goods, 'goods');
+    checkContainAllId(organizationIds, organizations, 'organizations');
 
     const rentalsWithDetails = rentals.map((rental) => ({
       ...rental,
       user,
+      organization: organizations.find((o) => o.id === rental.organizationId)!,
       goods: goods.find((g) => g.id === rental.goodsId)!,
-      approver: users.find((u) => u.id === rental.approverId) ?? null,
-      returnApprover:
-        users.find((u) => u.id === rental.returnApproverId) ?? null,
+      rentalWorker: users.find((u) => u.id === rental.rentalWorkerId)!,
+      returnWorker: users.find((u) => u.id === rental.returnWorkerId) ?? null,
       overdueContactedBy:
         users.find((u) => u.id === rental.overdueContactedById) ?? null,
     }));
@@ -367,7 +411,7 @@ export class RentalService {
       throw new BadRequestException('This rental cannot be returned');
     }
 
-    if (rental.timeConfirm !== 0) {
+    if (rental.returnWorkerId !== null) {
       throw new BadRequestException('This return has already been confirmed');
     }
 
@@ -390,8 +434,7 @@ export class RentalService {
       timeDue: rental.timeDue,
       expectedTimeReturn: rental.timeReturn,
       timeReturn: returnTime,
-      timeConfirm: getNow(),
-      returnApproverId: actor.id,
+      returnWorkerId: actor.id,
       overdueDays,
     });
     if (!confirmed) {
@@ -441,11 +484,11 @@ export class RentalService {
     }
 
     const textUpdates = [
-      updates.groupName,
-      updates.contact,
-      updates.emergencyContact,
-      updates.usingLocation,
-      updates.usingPurpose,
+      updates.phoneNumber,
+      updates.emergencyContactPresident,
+      updates.emergencyContactVicePresident,
+      updates.reasonLocation,
+      updates.reasonPurpose,
     ];
     if (textUpdates.some((value) => value !== undefined && !value.trim())) {
       throw new BadRequestException('Rental detail fields cannot be empty');
@@ -453,8 +496,13 @@ export class RentalService {
 
     const nextUserId = updates.userId ?? rental.userId;
     const nextGoodsId = updates.goodsId ?? rental.goodsId;
-    const [user, goods] = await Promise.all([
+    const nextOrganizationId = updates.organizationId ?? rental.organizationId;
+    if (!Number.isSafeInteger(nextOrganizationId) || nextOrganizationId <= 0) {
+      throw new BadRequestException('Organization ID must be a positive integer');
+    }
+    const [user, organization, goods] = await Promise.all([
       this.userPublicService.fetchById(nextUserId),
+      this.organizationPublicService.fetchById(nextOrganizationId),
       this.rentalPublicService.getGoodsById(nextGoodsId),
     ]);
     if (!user) {
@@ -463,24 +511,35 @@ export class RentalService {
     if (!goods) {
       throw new NotFoundException('Goods not found');
     }
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
 
     const allowedUpdates: IRentalUpdateAdmin = {
       ...(updates.userId !== undefined ? { userId: updates.userId } : {}),
       ...(updates.goodsId !== undefined ? { goodsId: updates.goodsId } : {}),
+      ...(updates.organizationId !== undefined
+        ? { organizationId: updates.organizationId }
+        : {}),
       count,
       timeDue,
-      ...(updates.groupName !== undefined
-        ? { groupName: updates.groupName }
+      ...(updates.phoneNumber !== undefined
+        ? { phoneNumber: updates.phoneNumber }
         : {}),
-      ...(updates.contact !== undefined ? { contact: updates.contact } : {}),
-      ...(updates.emergencyContact !== undefined
-        ? { emergencyContact: updates.emergencyContact }
+      ...(updates.emergencyContactPresident !== undefined
+        ? { emergencyContactPresident: updates.emergencyContactPresident }
         : {}),
-      ...(updates.usingLocation !== undefined
-        ? { usingLocation: updates.usingLocation }
+      ...(updates.emergencyContactVicePresident !== undefined
+        ? {
+            emergencyContactVicePresident:
+              updates.emergencyContactVicePresident,
+          }
         : {}),
-      ...(updates.usingPurpose !== undefined
-        ? { usingPurpose: updates.usingPurpose }
+      ...(updates.reasonLocation !== undefined
+        ? { reasonLocation: updates.reasonLocation }
+        : {}),
+      ...(updates.reasonPurpose !== undefined
+        ? { reasonPurpose: updates.reasonPurpose }
         : {}),
     };
     const updated = await this.rentalRepository.updateActiveRentalWithStock(
@@ -499,7 +558,8 @@ export class RentalService {
           id,
           user,
           goods,
-          contact: allowedUpdates.contact ?? rental.contact ?? user.email,
+          contact:
+            allowedUpdates.phoneNumber ?? rental.phoneNumber ?? user.email,
           rentalFrom: getDateString(rental.timeBorrow),
           rentalTo: getDateString(timeDue),
           rentalDuration: Math.ceil(
@@ -668,8 +728,8 @@ export class RentalService {
         overdueRentals.flatMap((rental) =>
           [
             rental.userId,
-            rental.approverId,
-            rental.returnApproverId,
+            rental.rentalWorkerId,
+            rental.returnWorkerId,
             rental.overdueContactedById,
           ].filter((id): id is number => id !== null),
         ),
@@ -677,23 +737,32 @@ export class RentalService {
     ];
     const goodsIds = [...new Set(overdueRentals.map((r) => r.goodsId))];
 
-    const [users, goods] = (await Promise.all([
+    const organizationIds = [
+      ...new Set(overdueRentals.map((rental) => rental.organizationId)),
+    ];
+    const [users, organizations, goods] = (await Promise.all([
       this.userPublicService
         .fetchAllByIds(userIds)
         .then(takeAll(userIds, 'users')),
+      this.organizationPublicService.fetchByIds(organizationIds),
       this.rentalPublicService.getGoodsByIds(goodsIds),
-    ])) as [IUser[], IGoods[]];
+    ])) as [
+      IUser[],
+      Awaited<ReturnType<OrganizationPublicService['fetchByIds']>>,
+      IGoods[],
+    ];
 
     checkContainAllId(userIds, users, 'users');
+    checkContainAllId(organizationIds, organizations, 'organizations');
     checkContainAllId(goodsIds, goods, 'goods');
 
     return overdueRentals.map((rental) => ({
       ...rental,
       user: users.find((u) => u.id === rental.userId)!,
+      organization: organizations.find((o) => o.id === rental.organizationId)!,
       goods: goods.find((g) => g.id === rental.goodsId)!,
-      approver: users.find((u) => u.id === rental.approverId) ?? null,
-      returnApprover:
-        users.find((u) => u.id === rental.returnApproverId) ?? null,
+      rentalWorker: users.find((u) => u.id === rental.rentalWorkerId)!,
+      returnWorker: users.find((u) => u.id === rental.returnWorkerId) ?? null,
       overdueContactedBy:
         users.find((u) => u.id === rental.overdueContactedById) ?? null,
     }));

@@ -48,16 +48,17 @@ export class RentalRepository {
 
   async createRentalWithAtomicStock(
     rental: IRentalCreate &
-      Partial<{
-        groupName: string | null;
-        contact: string | null;
-        emergencyContact: string | null;
-        usingLocation: string | null;
-        usingPurpose: string | null;
-        approverId: number | null;
-        returnApproverId: number | null;
-        status: RentalStatusEnum;
-      }>,
+      {
+        organizationId: number;
+        rentalWorkerId: number;
+        phoneNumber: string;
+        emergencyContactPresident: string;
+        emergencyContactVicePresident: string;
+        reasonLocation: string;
+        reasonPurpose: string;
+        returnWorkerId?: number | null;
+        status?: RentalStatusEnum;
+      },
   ): Promise<number | null> {
     return this.db.transaction(async (tx) => {
       await this.assertUserCanRent(tx, rental.userId);
@@ -78,7 +79,6 @@ export class RentalRepository {
       const insertResult = await tx.insert(Rental).values({
         ...rental,
         timeReturn: 0,
-        timeConfirm: 0,
         certName: RENTAL_CERTIFICATE_PENDING,
       });
 
@@ -182,8 +182,7 @@ export class RentalRepository {
     timeDue: number;
     expectedTimeReturn: number;
     timeReturn: number;
-    timeConfirm: number;
-    returnApproverId: number;
+    returnWorkerId: number;
     overdueDays?: number;
   }): Promise<boolean> {
     return await this.db.transaction(async (tx) => {
@@ -204,8 +203,7 @@ export class RentalRepository {
         .update(Rental)
         .set({
           timeReturn: params.timeReturn,
-          timeConfirm: params.timeConfirm,
-          returnApproverId: params.returnApproverId,
+          returnWorkerId: params.returnWorkerId,
           status: RentalStatusEnum.COMPLETED,
         })
         .where(
@@ -220,7 +218,6 @@ export class RentalRepository {
             eq(Rental.count, params.count),
             eq(Rental.timeDue, params.timeDue),
             eq(Rental.timeReturn, params.expectedTimeReturn),
-            eq(Rental.timeConfirm, 0),
           ),
         );
 
@@ -530,7 +527,7 @@ export class RentalRepository {
         and(
           eq(Rental.userId, userId),
           gt(Rental.timeReturn, 0), // 반납은 했음
-          eq(Rental.timeConfirm, 0), // 아직 관리자 확인 안됨
+          eq(Rental.status, RentalStatusEnum.RETURNED), // 아직 관리자 확인 안됨
           lt(Rental.timeDue, Rental.timeReturn), // 연체된 반납 (due < return)
         ),
       )
@@ -586,7 +583,6 @@ export class RentalRepository {
         status: Rental.status,
         timeDue: Rental.timeDue,
         timeReturn: Rental.timeReturn,
-        timeConfirm: Rental.timeConfirm,
       })
       .from(Rental)
       .where(and(...conditions));
@@ -608,8 +604,7 @@ export class RentalRepository {
       activeRentals.some(
         (rental) =>
           rental.status === RentalStatusEnum.RETURNED &&
-          rental.timeReturn > rental.timeDue &&
-          rental.timeConfirm === 0,
+          rental.timeReturn > rental.timeDue,
       )
     ) {
       throw new BadRequestException('User has an unconfirmed overdue return');

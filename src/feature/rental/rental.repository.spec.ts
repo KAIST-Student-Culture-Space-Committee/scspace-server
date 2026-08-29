@@ -13,7 +13,6 @@ jest.mock(
       userId: 'rental.userId',
       timeDue: 'rental.timeDue',
       timeReturn: 'rental.timeReturn',
-      timeConfirm: 'rental.timeConfirm',
     },
     Goods: {
       id: 'goods.id',
@@ -118,8 +117,7 @@ describe('RentalRepository.confirmReturnWithStock', () => {
     timeDue: 1_000,
     expectedTimeReturn: 0,
     timeReturn: 9_000,
-    timeConfirm: 10_000,
-    returnApproverId: 99,
+    returnWorkerId: 99,
     overdueDays: 3,
   };
 
@@ -133,8 +131,7 @@ describe('RentalRepository.confirmReturnWithStock', () => {
     expect(tx.update).toHaveBeenCalledTimes(3);
     expect(updates[0].values).toEqual({
       timeReturn: 9_000,
-      timeConfirm: 10_000,
-      returnApproverId: 99,
+      returnWorkerId: 99,
       status: RentalStatusEnum.COMPLETED,
     });
     expect(updates[1].values).toHaveProperty('countNow');

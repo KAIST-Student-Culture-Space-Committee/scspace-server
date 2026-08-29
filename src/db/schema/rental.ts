@@ -5,6 +5,7 @@ import {
     bigint,
 } from 'drizzle-orm/mysql-core';
 import { User } from './user';
+import { Organization } from './organization';
 
 // goods 테이블 정의
 export const Goods = mysqlTable('goods', {
@@ -22,6 +23,14 @@ export const Rental = mysqlTable('rental', {
     userId: int('user_id')
         .notNull()
         .references(() => User.id, { onDelete: 'cascade' }),
+    organizationId: int('organization_id')
+        .notNull()
+        .references(() => Organization.id, { onDelete: 'cascade' }),
+    rentalWorkerId: int('rental_worker_id')
+        .notNull()
+        .references(() => User.id, { onDelete: 'cascade' }),
+    returnWorkerId: int('return_worker_id')
+        .references(() => User.id, { onDelete: 'set null' }),
     goodsId: int('goods_id')
         .notNull()
         .references(() => Goods.id, { onDelete: 'cascade' }),
@@ -29,15 +38,12 @@ export const Rental = mysqlTable('rental', {
     timeBorrow: bigint('time_borrow', { mode: 'number' }).notNull(),
     timeDue: bigint('time_due', { mode: 'number' }).notNull(),
     timeReturn: bigint('time_return', { mode: 'number' }).notNull().default(0),
-    timeConfirm: bigint('time_confirm', { mode: 'number' }).notNull().default(0),
     certName: varchar('cert_name', { length: 256 }).notNull(),
-    groupName: varchar('group_name', { length: 128 }),
-    contact: varchar('contact', { length: 64 }),
-    emergencyContact: varchar('emergency_contact', { length: 64 }),
-    usingLocation: varchar('using_location', { length: 256 }),
-    usingPurpose: varchar('using_purpose', { length: 512 }),
-    approverId: int('approver_id').references(() => User.id, { onDelete: 'set null' }),
-    returnApproverId: int('return_approver_id').references(() => User.id, { onDelete: 'set null' }),
+    phoneNumber: varchar('phone_number', { length: 32 }).notNull(),
+    emergencyContactPresident: varchar('emergency_contact_president', { length: 32 }).notNull(),
+    emergencyContactVicePresident: varchar('emergency_contact_vice_president', { length: 32 }).notNull(),
+    reasonLocation: varchar('reason_location', { length: 256 }).notNull(),
+    reasonPurpose: varchar('reason_purpose', { length: 2048 }).notNull(),
     overdueContactedAt: bigint('overdue_contacted_at', { mode: 'number' }).notNull().default(0),
     overdueContactedById: int('overdue_contacted_by_id').references(() => User.id, { onDelete: 'set null' }),
     status: int('status').notNull().default(0),

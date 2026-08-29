@@ -64,7 +64,7 @@ describe('RentalController orchestration', () => {
     jest.clearAllMocks();
   });
 
-  it('passes approver id to admin create request', async () => {
+  it('passes rental worker id to admin create request', async () => {
     rentalService.createRentalAdmin.mockResolvedValue({
       success: true,
       data: { id: 10 },
@@ -76,7 +76,7 @@ describe('RentalController orchestration', () => {
     ).resolves.toEqual({ success: true, data: { id: 10 } });
 
     expect(rentalService.createRentalAdmin).toHaveBeenCalledWith(
-      expect.objectContaining({ approverId: 99 }),
+      expect.objectContaining({ rentalWorkerId: 99 }),
     );
   });
 
@@ -126,6 +126,7 @@ describe('RentalController orchestration', () => {
     ).resolves.toEqual({ available: true });
     expect(rentalPublicService.checkGoodsAvailability).toHaveBeenCalledWith({
       goodsId: 2,
+      organizationId: 3,
       count: 3,
       timeBorrow: 10,
       timeDue: 20,
@@ -157,14 +158,14 @@ describe('RentalController orchestration', () => {
       timeDue: 2,
       count: 1,
       certName: 'p',
-      contact: null,
-      emergencyContact: null,
-      usingLocation: null,
-      usingPurpose: null,
-      approverId: 1,
-      returnApproverId: null,
+      phoneNumber: '010-0000-0000',
+      emergencyContactPresident: '010-1111-1111',
+      emergencyContactVicePresident: '010-2222-2222',
+      reasonLocation: 'N1',
+      reasonPurpose: 'Event',
+      rentalWorkerId: 1,
+      returnWorkerId: null,
       timeReturn: 0,
-      timeConfirm: 0,
       overdueContactedById: null,
     };
     rentalService.getRentalById.mockResolvedValue(rental);

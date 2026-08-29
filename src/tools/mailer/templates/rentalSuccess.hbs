@@ -1,0 +1,25 @@
+<html lang='ko'>
+<head>
+    <meta charset='utf-8' />
+    <title>SCSpace 대여 승인 완료</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; color: #333; line-height: 1.6; }
+        .container { max-width: 600px; margin: 30px auto; padding: 24px; background: #fff; border-radius: 8px; }
+        .header { color: #198754; font-size: 22px; font-weight: 700; }
+        .details { margin-top: 20px; padding: 16px; background: #f8f9fa; border-left: 4px solid #198754; }
+    </style>
+</head>
+<body>
+<div class='container'>
+    <div class='header'>대여 신청이 승인되었습니다.</div>
+    <p>{{meta.user.nameKr}}님, 학생문화공간위원회에서 대여를 승인했습니다.</p>
+    <div class='details'>
+        물품: {{meta.goods.name}}<br />
+        수량: {{meta.rentalQuantity}}<br />
+        대여 일시: {{meta.rentalFrom}} KST<br />
+        반납 기한: {{meta.rentalTo}} KST
+    </div>
+    <p>대여 및 반납은 안내받은 상근 시간에 진행해 주세요.</p>
+</div>
+</body>
+</html>

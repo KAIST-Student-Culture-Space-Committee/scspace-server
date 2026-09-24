@@ -41,6 +41,7 @@ export const ReservationContent = mysqlTable('reservation_content', {
   food: varchar('food', { length: 255 }).notNull().default('X'), // For Mirae & Sumi
   busking: boolean('busking').notNull().default(false),
   workerNeed: boolean('worker_need').notNull().default(false),
+  performance: boolean('performance').notNull().default(false),
   workerId: int('worker_id').notNull().default(0),
 });
 

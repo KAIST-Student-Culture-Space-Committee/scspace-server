@@ -19,7 +19,7 @@ import { checkContainAllId, takeAll } from '@scspace-server/common/utils';
 import { ReservationStateEnum } from '@scspace-depot/enums/reservation.enum';
 import { IUser } from '@scspace-depot/types/user';
 import { ISpace } from '@scspace-depot/types/space';
-import { MReservation } from '@scspace-server/feature/reservation/reservation.model';
+import { MReservation, MReservationSimple } from '@scspace-server/feature/reservation/reservation.model';
 import { IDataResponse, ISuccessResponse } from '@scspace-depot/types/common';
 import { MailService } from '@scspace-server/tools/mailer/mail.service';
 import { ReservationMeta, WorkerMeta } from '@scspace-depot/enums/mail.enum';
@@ -344,6 +344,7 @@ export class ReservationService {
         busking: reservationInput.content.busking,
         workerNeed: reservationInput.content.workerNeed,
         workerNeedReason: reservationInput.content.workerNeedReason,
+        performance: reservationInput.content.performance,
       },
     };
 
@@ -837,6 +838,7 @@ export class ReservationService {
             busking: reservationInput.content.busking,
             workerNeed: reservationInput.content.workerNeed,
             workerNeedReason: reservationInput.content.workerNeedReason,
+            performance: reservationInput.content.performance,
           }
         : undefined,
     };
@@ -1052,6 +1054,39 @@ export class ReservationService {
       state: ReservationStateEnum.WAIT,
     });
 
+    return (await this.toReservationAll(reservations)).filter(
+      (reservation) =>
+        reservation.space.spaceType === SpaceTypeEnum.MIRAE ||
+        reservation.space.spaceType === SpaceTypeEnum.SUMI,
+    );
+  }
+
+  async getDutyReservation(
+    timeFrom: number,
+    timeTo: number,
+  ): Promise<IReservationAll[]> {
+    if (timeFrom >= timeTo)
+      throw new BadRequestException('timeFrom must be before timeTo');
+
+    const { data: reservations } = await this.reservationRepository.fetch({
+      states: [
+        ReservationStateEnum.GRANT,
+        ReservationStateEnum.WAIT,
+        ReservationStateEnum.RECEIVED,
+      ],
+      timeRange: { timeFrom, timeTo },
+    });
+
+    return (await this.toReservationAll(reservations)).sort(
+      (a, b) => a.timeFrom - b.timeFrom,
+    );
+  }
+
+  private async toReservationAll(
+    reservations: MReservationSimple[],
+  ): Promise<IReservationAll[]> {
+    if (reservations.length === 0) return [];
+
     const userIds = reservations.map((reservation) => reservation.userId);
     const organizationIds = reservations.map(
       (reservation) => reservation.organizationId,
@@ -1082,29 +1117,23 @@ export class ReservationService {
     checkContainAllId(spaceIds, spaces, 'spaces');
     checkContainAllId(workerIds, workers, 'workers');
 
-    return reservations
-      .map((reservation) => {
-        const content = reservationContents.find(
-          (content) => content.id === reservation.id,
-        )!;
-        return {
-          ...reservation,
-          user: users.find((user) => user.id === reservation.userId)!,
-          organization: organizations.find(
-            (org) => org.id === reservation.organizationId,
-          )!,
-          space: spaces.find((space) => space.id === reservation.spaceId)!,
-          content,
-          worker:
-            content.workerId === 0
-              ? null
-              : workers.find((worker) => worker.id === content.workerId)!,
-        };
-      })
-      .filter(
-        (reservation) =>
-          reservation.space.spaceType === SpaceTypeEnum.MIRAE ||
-          reservation.space.spaceType === SpaceTypeEnum.SUMI,
-      );
+    return reservations.map((reservation) => {
+      const content = reservationContents.find(
+        (content) => content.id === reservation.id,
+      )!;
+      return {
+        ...reservation,
+        user: users.find((user) => user.id === reservation.userId)!,
+        organization: organizations.find(
+          (org) => org.id === reservation.organizationId,
+        )!,
+        space: spaces.find((space) => space.id === reservation.spaceId)!,
+        content,
+        worker:
+          content.workerId === 0
+            ? null
+            : workers.find((worker) => worker.id === content.workerId)!,
+      };
+    });
   }
 }

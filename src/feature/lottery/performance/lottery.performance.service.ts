@@ -579,6 +579,7 @@ export class LotteryPerformanceService {
                 food: '',
                 busking: false,
                 workerNeed: false,
+                performance: true,
               },
             });
 
@@ -619,6 +620,7 @@ export class LotteryPerformanceService {
               food: '',
               busking: false,
               workerNeed: false,
+              performance: true,
             },
           },
         );

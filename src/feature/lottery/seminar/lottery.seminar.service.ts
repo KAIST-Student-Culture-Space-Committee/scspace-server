@@ -838,6 +838,7 @@ export class LotterySeminarService {
               food: '',
               busking: false,
               workerNeed: false,
+              performance: false,
             },
           },
         );

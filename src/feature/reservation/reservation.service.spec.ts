@@ -102,14 +102,17 @@ describe('ReservationService approval lifecycle', () => {
     validateSpaceTimeConstraints: jest.fn(),
     validateSeminarLotteryConflict: jest.fn(),
     validatePerformanceLotteryConflict: jest.fn(),
+    getReservationContentByIds: jest.fn(),
   };
-  const spacePublicService = { fetchById: jest.fn() };
+  const spacePublicService = { fetchById: jest.fn(), fetchAllByIds: jest.fn() };
   const userPublicService = {
     fetchById: jest.fn(),
     fetchAllWorker: jest.fn(),
+    fetchAllByIds: jest.fn(),
   };
   const organizationPublicService = {
     fetchById: jest.fn(),
+    fetchByIds: jest.fn(),
     fetchByUserId: jest.fn(),
     fetchDeepById: jest.fn(),
   };
@@ -138,6 +141,7 @@ describe('ReservationService approval lifecycle', () => {
     busking: false,
     workerNeed: false,
     workerId: 0,
+    performance: false,
   };
   const input = {
     userId: 7,
@@ -407,5 +411,55 @@ describe('ReservationService approval lifecycle', () => {
         context: expect.objectContaining({ workerMail: true }),
       }),
     );
+  });
+
+  it('returns non-rejected reservations in the duty range sorted by start time', async () => {
+    const reservation = (id: number, spaceId: number, timeFrom: number) => ({
+      id,
+      userId: 7,
+      organizationId: 1,
+      spaceId,
+      title: `R${id}`,
+      timeFrom,
+      timeTo: timeFrom + 60,
+      state: ReservationStateEnum.GRANT,
+      timePost: 1,
+      timeUpdate: 1,
+    });
+    reservationRepository.fetch.mockResolvedValue({
+      data: [reservation(2, 9, 1_200), reservation(1, 8, 1_140)],
+    });
+    userPublicService.fetchAllByIds.mockResolvedValue([{ id: 7 }]);
+    organizationPublicService.fetchByIds.mockResolvedValue([{ id: 1 }]);
+    spacePublicService.fetchAllByIds.mockResolvedValue([
+      { id: 8, spaceType: SpaceTypeEnum.SEMINAR },
+      { id: 9, spaceType: SpaceTypeEnum.MIRAE },
+    ]);
+    reservationPublicService.getReservationContentByIds.mockResolvedValue([
+      { ...content, id: 1, performance: true },
+      { ...content, id: 2 },
+    ]);
+
+    const result = await service().getDutyReservation(1_140, 1_260);
+
+    expect(reservationRepository.fetch).toHaveBeenCalledWith({
+      states: [
+        ReservationStateEnum.GRANT,
+        ReservationStateEnum.WAIT,
+        ReservationStateEnum.RECEIVED,
+      ],
+      timeRange: { timeFrom: 1_140, timeTo: 1_260 },
+    });
+    expect(result.map((r) => [r.id, r.space.id, r.content.performance])).toEqual([
+      [1, 8, true],
+      [2, 9, false],
+    ]);
+  });
+
+  it('rejects an empty duty range', async () => {
+    await expect(service().getDutyReservation(1_260, 1_140)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(reservationRepository.fetch).not.toHaveBeenCalled();
   });
 });

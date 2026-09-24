@@ -120,6 +120,15 @@ export class ReservationController {
     return await this.reservationService.getManageReservation();
   }
 
+  @UseGuards(ManagerGuard)
+  @Get('duty')
+  async getDutyReservation(
+    @Query('timeFrom', ParseIntPipe) timeFrom: number,
+    @Query('timeTo', ParseIntPipe) timeTo: number,
+  ): Promise<IReservationAll[]> {
+    return await this.reservationService.getDutyReservation(timeFrom, timeTo);
+  }
+
   // AuthGuard - jwt
   //HOOK: useReservationAPI
   @UseGuards(MemberGuard)

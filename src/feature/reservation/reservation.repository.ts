@@ -328,6 +328,7 @@ export class ReservationRepository {
       food: reservationInput.content.food,
       busking: reservationInput.content.busking,
       workerNeed: reservationInput.content.workerNeed,
+      performance: reservationInput.content.performance ?? false,
     } as InferInsertModel<typeof ReservationContent>;
 
     await this.db.insert(ReservationContent).values(insertContentData);
@@ -378,6 +379,7 @@ export class ReservationRepository {
         food: data.content.food,
         busking: data.content.busking,
         workerNeed: data.content.workerNeed,
+        performance: data.content.performance,
       } as InferInsertModel<typeof ReservationContent>;
 
       const [resultContent] = await this.db

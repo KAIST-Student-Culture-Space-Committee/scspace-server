@@ -131,7 +131,7 @@ export class OrganizationService {
         },
         user: newDelegator
       }
-    });
+    }).catch((error) => Logger.error('Failed to send organization delegator update mail', error));
 
     return MOrganization.fromDB(updatedOrganization);
   }
@@ -164,7 +164,7 @@ export class OrganizationService {
         },
         meta
       }
-    })
+    }).catch((error) => Logger.error('Failed to send organization status update mail', error));
 
     return MOrganization.fromDB(updatedOrganization);
   }

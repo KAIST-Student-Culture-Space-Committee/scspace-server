@@ -43,7 +43,7 @@ export class MailService {
 
     try {
       return await this.sendMail({
-        to: ['jhlee012@kaist.ac.kr', "seoho7777.kim@gmail.com"],
+        to: ['scspace.kaist@gmail.com'],
         subject: `[SCSpace-DEV] Error Report - ${error.name}`,
         template: 'errorLog',
         context: {

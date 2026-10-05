@@ -7,6 +7,9 @@
 /src/db/migrations/*
 !/src/db/migrations/0007_seminar_lottery_priority.sql
 !/src/db/migrations/0008_rental_onsite_workflow.sql
+!/src/db/migrations/0009_add_rooftop.sql
+!/src/db/migrations/0010_reservation_performance.sql
+!/src/db/migrations/0011_penalty.sql
 
 # Logs
 logs

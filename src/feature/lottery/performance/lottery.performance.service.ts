@@ -35,6 +35,8 @@ import { ReservationPublicService } from '@scspace-server/feature/reservation/re
 import { MailService } from '@scspace-server/tools/mailer/mail.service';
 import { UserPublicService } from '@scspace-server/feature/user/user.public.service';
 import { LotteryMeta } from '@scspace-depot/enums/mail.enum';
+import { PenaltyPublicService } from '@scspace-server/feature/penalty/penalty.public.service';
+import { PenaltyTargetEnum } from '@scspace-depot/enums/penalty.enum';
 
 @Injectable()
 export class LotteryPerformanceService {
@@ -50,6 +52,7 @@ export class LotteryPerformanceService {
     private readonly reservationPublicService: ReservationPublicService,
     private readonly mailService: MailService,
     private readonly userPublicService: UserPublicService,
+    private readonly penaltyPublicService: PenaltyPublicService,
   ) {}
 
   async getAllPerformanceLotteryInfo(): Promise<MPerformanceLotteryInfo[]> {
@@ -298,6 +301,14 @@ export class LotteryPerformanceService {
         'Performance lotteries are only available for performance spaces',
       );
     }
+
+    await this.penaltyPublicService.assertNotRestricted(
+      {
+        targetType: PenaltyTargetEnum.ORGANIZATION,
+        targetId: params.lottery.organizationId,
+      },
+      space.spaceType,
+    );
 
     const periodLength = Math.ceil(
       getDateDiffInMinute(lotteryInfo.timeStart, lotteryInfo.timeEnd) /

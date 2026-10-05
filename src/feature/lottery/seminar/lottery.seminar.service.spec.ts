@@ -36,6 +36,11 @@ jest.mock(
   { virtual: true },
 );
 jest.mock(
+  '@scspace-depot/enums/penalty.enum',
+  () => ({ PenaltyTargetEnum: { USER: 1, ORGANIZATION: 2 } }),
+  { virtual: true },
+);
+jest.mock(
   '@scspace-server/feature/organization/organization.public.service',
   () => ({ OrganizationPublicService: class {} }),
   { virtual: true },
@@ -60,6 +65,11 @@ jest.mock(
   () => ({ UserPublicService: class {} }),
   { virtual: true },
 );
+jest.mock(
+  '@scspace-server/feature/penalty/penalty.public.service',
+  () => ({ PenaltyPublicService: class {} }),
+  { virtual: true },
+);
 jest.mock('./lottery.seminar.repository', () => ({
   LotterySeminarRepository: class {},
 }));
@@ -77,6 +87,7 @@ import { BadRequestException } from '@nestjs/common';
 import { getDateUnit } from '@scspace-server/common/utils';
 import { OrganizationStatusEnum } from '@scspace-depot/enums/organization.enum';
 import { SpaceTypeEnum } from '@scspace-depot/enums/space.enum';
+import { PenaltyTargetEnum } from '@scspace-depot/enums/penalty.enum';
 import {
   buildSeminarReservationTimes,
   LotterySeminarService,
@@ -265,6 +276,9 @@ describe('LotterySeminarService application validation', () => {
     fetchAwaitingApplication: jest.fn(),
     update: jest.fn(),
   };
+  const penaltyPublicService = {
+    assertNotRestricted: jest.fn(),
+  };
 
   function service(): LotterySeminarService {
     return new LotterySeminarService(
@@ -275,6 +289,7 @@ describe('LotterySeminarService application validation', () => {
       lotterySeminarInfoRepository as never,
       {} as never,
       {} as never,
+      penaltyPublicService as never,
     );
   }
 
@@ -300,6 +315,7 @@ describe('LotterySeminarService application validation', () => {
     });
     lotterySeminarRepository.fetch.mockResolvedValue([]);
     lotterySeminarRepository.insert.mockResolvedValue({ id: 1 });
+    penaltyPublicService.assertNotRestricted.mockResolvedValue(undefined);
   });
 
   it('accepts one application for each priority across both rooms', async () => {
@@ -348,6 +364,46 @@ describe('LotterySeminarService application validation', () => {
           organizationId: 20,
           spaceId: 10,
           priority: 1,
+          time: 11,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(lotterySeminarRepository.insert).not.toHaveBeenCalled();
+  });
+
+  it('checks the penalty restriction before accepting an application', async () => {
+    lotterySeminarRepository.fetch
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await service().postSeminarLottery({
+      lottery: {
+        infoId: 77,
+        organizationId: 20,
+        spaceId: 10,
+        priority: 2,
+        time: 11,
+      },
+    });
+
+    expect(penaltyPublicService.assertNotRestricted).toHaveBeenCalledWith(
+      { targetType: PenaltyTargetEnum.ORGANIZATION, targetId: 20 },
+      SpaceTypeEnum.SEMINAR,
+    );
+  });
+
+  it('rejects the application when the organization is restricted', async () => {
+    penaltyPublicService.assertNotRestricted.mockRejectedValue(
+      new BadRequestException('Restricted'),
+    );
+
+    await expect(
+      service().postSeminarLottery({
+        lottery: {
+          infoId: 77,
+          organizationId: 20,
+          spaceId: 10,
+          priority: 2,
           time: 11,
         },
       }),

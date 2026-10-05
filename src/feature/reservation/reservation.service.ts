@@ -31,6 +31,7 @@ import { UserPublicService } from '@scspace-server/feature/user/user.public.serv
 import { OrganizationPublicService } from '@scspace-server/feature/organization/organization.public.service';
 import { UserUtils } from '@scspace-depot/utils/user.utils';
 import { SpaceTypeEnum } from '@scspace-depot/enums/space.enum';
+import { PenaltyPublicService } from '@scspace-server/feature/penalty/penalty.public.service';
 
 @Injectable()
 export class ReservationService {
@@ -43,6 +44,7 @@ export class ReservationService {
     private readonly userPublicService: UserPublicService,
     private readonly organizationPublicService: OrganizationPublicService,
     private readonly mailService: MailService,
+    private readonly penaltyPublicService: PenaltyPublicService,
   ) {}
 
   private async reportMailError(
@@ -367,6 +369,14 @@ export class ReservationService {
     if (!user) throw new BadRequestException('User not found');
     if (!organization) throw new BadRequestException('Organization not found');
     if (!space) throw new BadRequestException('Space not found');
+
+    if (!UserUtils.isManager(actor.type)) {
+      await this.penaltyPublicService.assertReservable(
+        safeReservationInput.userId,
+        safeReservationInput.organizationId,
+        space.spaceType,
+      );
+    }
 
     if (!UserUtils.isManager(user.type)) {
       const userOrganizations =
@@ -861,6 +871,16 @@ export class ReservationService {
     if (!user) throw new BadRequestException('User not found');
     if (!organization) throw new BadRequestException('Organization not found');
     if (!space) throw new BadRequestException('Space not found');
+
+    const isTimeChanged =
+      timeFrom !== reservation[0].timeFrom || timeTo !== reservation[0].timeTo;
+    if (isTimeChanged && !UserUtils.isManager(actor.type)) {
+      await this.penaltyPublicService.assertReservable(
+        reservation[0].userId,
+        reservation[0].organizationId,
+        space.spaceType,
+      );
+    }
 
     await this.reservationPublicService.validateSpaceTimeConstraints(
       reservation[0].userId,

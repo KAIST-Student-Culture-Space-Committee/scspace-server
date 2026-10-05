@@ -16,6 +16,7 @@ import { LotteryModule } from './feature/lottery/lottery.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { FileModule } from './tools/file/file.module';
 import { PasspinModule } from './feature/passpin/passpin.module';
+import { PenaltyModule } from './feature/penalty/penalty.module';
 import { RedisModule } from './db/redis/redis.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { RedisModule } from './db/redis/redis.module';
     LotteryModule,
     FileModule,
     PasspinModule,
+    PenaltyModule,
     RedisModule,
   ],
   controllers: [AppController],

@@ -7,6 +7,7 @@ import {
 import { Article } from './article';
 import { Organization, OrganizationMember } from './organization';
 import { Passpin } from './passpin';
+import { Penalty } from './penalty';
 import { Qna } from './qna';
 import { Goods, Rental } from './rental';
 import { Reservation, ReservationContent, } from './reservation';
@@ -20,6 +21,7 @@ const schema = {
   Organization,
   OrganizationMember,
   Passpin,
+  Penalty,
   PerformanceLotteryInfo,
   PerformanceLottery,
   Qna,
@@ -41,6 +43,7 @@ export {
   Organization,
   OrganizationMember,
   Passpin,
+  Penalty,
   PerformanceLotteryInfo,
   PerformanceLottery,
   Qna,

@@ -31,6 +31,11 @@ jest.mock(
   { virtual: true },
 );
 jest.mock(
+  '@scspace-depot/enums/penalty.enum',
+  () => ({ PenaltyTargetEnum: { USER: 1, ORGANIZATION: 2 } }),
+  { virtual: true },
+);
+jest.mock(
   '@scspace-server/feature/organization/organization.public.service',
   () => ({ OrganizationPublicService: class {} }),
   { virtual: true },
@@ -55,6 +60,11 @@ jest.mock(
   () => ({ UserPublicService: class {} }),
   { virtual: true },
 );
+jest.mock(
+  '@scspace-server/feature/penalty/penalty.public.service',
+  () => ({ PenaltyPublicService: class {} }),
+  { virtual: true },
+);
 jest.mock('./lottery.performance.repository', () => ({
   LotteryPerformanceRepository: class {},
 }));
@@ -71,6 +81,7 @@ jest.mock('./lottery.performance.info.model', () => ({
 import { BadRequestException } from '@nestjs/common';
 import { OrganizationStatusEnum } from '@scspace-depot/enums/organization.enum';
 import { SpaceTypeEnum } from '@scspace-depot/enums/space.enum';
+import { PenaltyTargetEnum } from '@scspace-depot/enums/penalty.enum';
 import { LotteryPerformanceService } from './lottery.performance.service';
 
 describe('LotteryPerformanceService', () => {
@@ -96,6 +107,9 @@ describe('LotteryPerformanceService', () => {
     getReservationTimesBySpaceIDBetweenTime: jest.fn(),
     postMultipleReservation: jest.fn(),
   };
+  const penaltyPublicService = {
+    assertNotRestricted: jest.fn(),
+  };
 
   function service(): LotteryPerformanceService {
     return new LotteryPerformanceService(
@@ -106,6 +120,7 @@ describe('LotteryPerformanceService', () => {
       reservationPublicService as never,
       {} as never,
       {} as never,
+      penaltyPublicService as never,
     );
   }
 
@@ -135,6 +150,7 @@ describe('LotteryPerformanceService', () => {
     });
     lotteryPerformanceRepository.fetch.mockResolvedValue([]);
     lotteryPerformanceRepository.insert.mockResolvedValue({ id: 1 });
+    penaltyPublicService.assertNotRestricted.mockResolvedValue(undefined);
   });
 
   it.each([
@@ -193,6 +209,42 @@ describe('LotteryPerformanceService', () => {
         },
       }),
     ).rejects.toThrow('Date is outside the performance lottery period');
+    expect(lotteryPerformanceRepository.insert).not.toHaveBeenCalled();
+  });
+
+  it('checks the penalty restriction before accepting an application', async () => {
+    await service().postPerformanceLottery({
+      lottery: {
+        infoId: 77,
+        organizationId: 20,
+        priority: 1,
+        date: 0,
+        spaceId: 10,
+      },
+    });
+
+    expect(penaltyPublicService.assertNotRestricted).toHaveBeenCalledWith(
+      { targetType: PenaltyTargetEnum.ORGANIZATION, targetId: 20 },
+      SpaceTypeEnum.MIRAE,
+    );
+  });
+
+  it('rejects the application when the organization is restricted', async () => {
+    penaltyPublicService.assertNotRestricted.mockRejectedValue(
+      new BadRequestException('Restricted'),
+    );
+
+    await expect(
+      service().postPerformanceLottery({
+        lottery: {
+          infoId: 77,
+          organizationId: 20,
+          priority: 1,
+          date: 0,
+          spaceId: 10,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(lotteryPerformanceRepository.insert).not.toHaveBeenCalled();
   });
 

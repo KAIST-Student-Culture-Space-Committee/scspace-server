@@ -33,6 +33,8 @@ import { IReservationMultipleCreateResurt } from '@scspace-depot/types/reservati
 import { MailService } from '@scspace-server/tools/mailer/mail.service';
 import { UserPublicService } from '@scspace-server/feature/user/user.public.service';
 import { LotteryMeta } from '@scspace-depot/enums/mail.enum';
+import { PenaltyPublicService } from '@scspace-server/feature/penalty/penalty.public.service';
+import { PenaltyTargetEnum } from '@scspace-depot/enums/penalty.enum';
 
 const weekDays = [
   { key: 'sunday', label: 'Sun', index: 0 },
@@ -205,6 +207,7 @@ export class LotterySeminarService {
     private readonly lotterySeminarInfoRepository: LotterySeminarInfoRepository,
     private readonly mailService: MailService,
     private readonly userPublicService: UserPublicService,
+    private readonly penaltyPublicService: PenaltyPublicService,
   ) {}
 
   async getAllSeminarLotteryInfo(): Promise<MSeminarLotteryInfo[]> {
@@ -451,6 +454,14 @@ export class LotterySeminarService {
         'Seminar lotteries are only available for seminar spaces',
       );
     }
+
+    await this.penaltyPublicService.assertNotRestricted(
+      {
+        targetType: PenaltyTargetEnum.ORGANIZATION,
+        targetId: params.lottery.organizationId,
+      },
+      space.spaceType,
+    );
 
     return await this.withLotteryLock(params.lottery.infoId, async () => {
       const activeLotteries =

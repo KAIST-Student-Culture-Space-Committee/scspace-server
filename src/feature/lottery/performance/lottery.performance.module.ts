@@ -8,6 +8,7 @@ import { LotteryPerformanceRepository } from "./lottery.performance.repository";
 import { LotteryPerformanceService } from "./lottery.performance.service";
 import { LotteryPerformanceInfoRepository } from "./lottery.performance.info.repository";
 import { MailModule } from "@scspace-server/tools/mailer/mail.module";
+import { PenaltyModule } from "../../penalty/penalty.module";
 import { ReservationModule } from "@scspace-server/feature/reservation/reservation.module";
 
 @Module({
@@ -17,6 +18,7 @@ import { ReservationModule } from "@scspace-server/feature/reservation/reservati
         UserModule,
         OrganizationModule,
         MailModule,
+        PenaltyModule,
         forwardRef(() => ReservationModule)
     ],
     controllers: [LotteryPerformanceController],

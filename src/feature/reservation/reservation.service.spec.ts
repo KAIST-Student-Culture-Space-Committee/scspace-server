@@ -71,6 +71,11 @@ jest.mock(
   { virtual: true },
 );
 jest.mock(
+  '@scspace-server/feature/penalty/penalty.public.service',
+  () => ({ PenaltyPublicService: class {} }),
+  { virtual: true },
+);
+jest.mock(
   '@scspace-server/feature/reservation/reservation.model',
   () => ({
     MReservation: {
@@ -116,6 +121,9 @@ describe('ReservationService approval lifecycle', () => {
     fetchByUserId: jest.fn(),
     fetchDeepById: jest.fn(),
   };
+  const penaltyPublicService = {
+    assertReservable: jest.fn(),
+  };
   const mailService = {
     sendMail: jest.fn(),
     reportError: jest.fn(),
@@ -129,6 +137,7 @@ describe('ReservationService approval lifecycle', () => {
       userPublicService as never,
       organizationPublicService as never,
       mailService as never,
+      penaltyPublicService as never,
     );
   }
 
@@ -177,6 +186,7 @@ describe('ReservationService approval lifecycle', () => {
     mailService.sendMail.mockResolvedValue(undefined);
     mailService.reportError.mockResolvedValue(undefined);
     userPublicService.fetchAllWorker.mockResolvedValue([]);
+    penaltyPublicService.assertReservable.mockResolvedValue(undefined);
   });
 
   it('creates a normal Mirae Hall reservation in WAIT', async () => {
@@ -203,6 +213,34 @@ describe('ReservationService approval lifecycle', () => {
       expect.objectContaining({ userId: 7, spaceId: 9 }),
       ReservationStateEnum.GRANT,
     );
+  });
+
+  it('checks the penalty restriction for a non-manager reservation', async () => {
+    await service().postReservation(input, { id: 7, type: 1 } as never);
+
+    expect(penaltyPublicService.assertReservable).toHaveBeenCalledWith(
+      7,
+      1,
+      SpaceTypeEnum.MIRAE,
+    );
+  });
+
+  it('skips the penalty restriction check for a manager reservation', async () => {
+    await service().postReservation(input, { id: 99, type: 2 } as never);
+
+    expect(penaltyPublicService.assertReservable).not.toHaveBeenCalled();
+  });
+
+  it('rejects reservation creation when the target is restricted', async () => {
+    penaltyPublicService.assertReservable.mockRejectedValue(
+      new BadRequestException('Restricted'),
+    );
+
+    await expect(
+      service().postReservation(input, { id: 7, type: 1 } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(reservationRepository.insert).not.toHaveBeenCalled();
   });
 
   it('sends a WAIT worker reason without notifying all workers before approval', async () => {
@@ -347,6 +385,73 @@ describe('ReservationService approval lifecycle', () => {
       ReservationStateEnum.WAIT,
       granted,
     );
+  });
+
+  it('checks the penalty restriction when a member changes the reservation time', async () => {
+    const granted = {
+      ...input,
+      id: 10,
+      state: ReservationStateEnum.GRANT,
+      timePost: 1,
+      timeUpdate: 1,
+    };
+    reservationRepository.fetch.mockResolvedValue({ data: [granted] });
+    reservationRepository.update.mockResolvedValue([
+      { ...granted, timeFrom: 1_060, state: ReservationStateEnum.WAIT },
+      content,
+    ]);
+
+    await service().updateReservation(
+      { id: 10, timeFrom: 1_060, timeTo: 1_120 },
+      { id: 7, type: 1 } as never,
+    );
+
+    expect(penaltyPublicService.assertReservable).toHaveBeenCalledWith(
+      7,
+      1,
+      SpaceTypeEnum.MIRAE,
+    );
+  });
+
+  it('skips the penalty restriction check when the reservation time is unchanged', async () => {
+    const granted = {
+      ...input,
+      id: 10,
+      state: ReservationStateEnum.GRANT,
+      timePost: 1,
+      timeUpdate: 1,
+    };
+    reservationRepository.fetch.mockResolvedValue({ data: [granted] });
+    reservationRepository.update.mockResolvedValue([granted, content]);
+
+    await service().updateReservation(
+      { id: 10, title: 'Updated title' },
+      { id: 7, type: 1 } as never,
+    );
+
+    expect(penaltyPublicService.assertReservable).not.toHaveBeenCalled();
+  });
+
+  it('skips the penalty restriction check for a manager update', async () => {
+    const granted = {
+      ...input,
+      id: 10,
+      state: ReservationStateEnum.GRANT,
+      timePost: 1,
+      timeUpdate: 1,
+    };
+    reservationRepository.fetch.mockResolvedValue({ data: [granted] });
+    reservationRepository.update.mockResolvedValue([
+      { ...granted, timeFrom: 1_060, state: ReservationStateEnum.WAIT },
+      content,
+    ]);
+
+    await service().updateReservation(
+      { id: 10, timeFrom: 1_060, timeTo: 1_120 },
+      { id: 99, type: 2 } as never,
+    );
+
+    expect(penaltyPublicService.assertReservable).not.toHaveBeenCalled();
   });
 
   it('does not fail approval when both notification and error reporting fail', async () => {
